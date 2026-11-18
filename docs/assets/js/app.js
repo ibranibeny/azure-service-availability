@@ -1,6 +1,6 @@
 // Azure Service Availability dashboard
 import { configured, handleRedirect, account, signIn, signOut, AuthError } from "./auth.js";
-import { get, ApiError } from "./api.js";
+import { get, ApiError, guestAllowed, isGuest, setGuest } from "./api.js";
 import { WorldMap } from "./map.js";
 
 const $ = (s, root = document) => root.querySelector(s);
@@ -129,7 +129,10 @@ function showGate(kind, err) {
   if (kind === "notConfigured") msg.innerHTML = "This dashboard isn't connected to its API yet. Run <code>scripts/deploy.sh</code> and commit the generated <code>docs/config.js</code>.";
   else if (kind === "authError") msg.innerHTML = `Sign-in didn't complete: <b>${esc(err?.code)}</b> ${esc(err?.message)}`;
   else if (kind === "apiDenied") msg.innerHTML = `${esc(err?.message)} <button class="link" id="gateSignOut">Sign out</button>`;
+  else if (kind === "guestOff") msg.innerHTML = "Guest access is turned off at the moment. Sign in with your <b>contoso.day</b> account.";
   $("#signInBtn").disabled = kind === "notConfigured";
+  $("#guestBtn").hidden = !guestAllowed() || kind === "notConfigured" || kind === "guestOff";
+  $("#guestFine").hidden = $("#guestBtn").hidden;
   $("#gateSignOut")?.addEventListener("click", signOut);
 }
 
@@ -151,6 +154,7 @@ async function loadSummary() {
     selectRegion(first, { zoom: false, push: false });
     setTab(h.tab, false);
   } catch (e) {
+    if (isGuest() && e instanceof ApiError && e.status === 401) { setGuest(false); return showGate("guestOff"); }
     if (e instanceof ApiError && (e.status === 401 || e.code === "signed_out")) return showGate("authError", e);
     if (e instanceof ApiError && e.status === 403) return showGate("apiDenied", e);
     $("#appError").hidden = false;
@@ -370,7 +374,7 @@ function drawVm() {
   $("#vmTable tbody").innerHTML = rows.slice(0, limit).map((r) => `<tr class="${r.status !== "available" ? "restricted" : ""}">
     <td class="mono">${esc(r.name)}${r.retirement ? ` <span class="pill warn" title="Retirement date ${esc(r.retirement)}">retires ${esc(r.retirement)}</span>` : ""}${r.lifecycle && !/^ga$|generallyavailable/i.test(r.lifecycle) ? ` <span class="pill">${esc(r.lifecycle)}</span>` : ""}</td>
     <td class="muted">${esc(r.family)}</td><td class="num">${r.vcpus ?? "—"}</td><td class="num">${r.memoryGB ?? "—"}</td><td class="num">${r.gpus || "—"}</td><td>${esc(r.arch)}</td>
-    <td>${[...r.zones.map((z) => `<span class="z">${esc(z)}</span>`), ...r.zonesRestricted.map((z) => `<span class="z off" title="Zone ${esc(z)} restricted for this subscription">${esc(z)}</span>`)].join("") || `<span class="n">regional</span>`}</td>
+    <td class="zones">${[...r.zones.map((z) => `<span class="z">${esc(z)}</span>`), ...r.zonesRestricted.map((z) => `<span class="z off" title="Zone ${esc(z)} restricted for this subscription">${esc(z)}</span>`)].join("") || `<span class="n">regional</span>`}</td>
     <td>${yes(r.spot)}</td><td>${yes(r.premiumIO)}</td><td>${yes(r.accelNet)}</td>
     <td>${r.status === "available" ? `<span class="badge ok">Available</span>` : `<span class="badge warn" title="${esc(r.reason)}">Restricted</span>`}</td></tr>`).join("") ||
     `<tr><td colspan="${COLS.length}" class="muted center">No VM sizes match these filters.</td></tr>`;
@@ -523,6 +527,7 @@ async function openChanges() {
 async function boot() {
   applyPrefs(); wirePrefs();
   $("#signInBtn").addEventListener("click", () => signIn());
+  $("#guestBtn").addEventListener("click", () => { setGuest(true); startApp(null); });
   $$(".tab").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
   if (!configured()) return showGate("notConfigured");
   try {
@@ -531,11 +536,30 @@ async function boot() {
     return showGate("authError", e instanceof AuthError ? e : { code: "error", message: e.message });
   }
   const acct = account();
-  if (!acct) return showGate();
-  $("#user").innerHTML = `${icon("users", "ico sm")}<span title="${esc(acct.username)}">${esc(acct.name || acct.username)}</span><button class="ghost" id="signOutBtn">Sign out</button>`;
+  if (acct) { setGuest(false); return startApp(acct); }
+  // Public dashboard: with guest access on, everyone lands straight in the read-only view;
+  // contoso.day users can still sign in from the header.
+  if (guestAllowed()) {
+    if (new URLSearchParams(location.search).has("guest")) history.replaceState(null, "", location.pathname + location.hash);
+    setGuest(true);
+    return startApp(null);
+  }
+  return showGate();
+}
+
+// acct = signed-in Entra ID account, or null for a read-only guest
+async function startApp(acct) {
+  if (acct) {
+    $("#user").innerHTML = `${icon("users", "ico sm")}<span title="${esc(acct.username)}">${esc(acct.name || acct.username)}</span><button class="ghost" id="signOutBtn">Sign out</button>`;
+  } else {
+    $("#user").innerHTML = `<span class="badge guest" title="Anyone with the link can view this dashboard; nothing can be changed from here">Guest · read-only</span><button class="ghost" id="guestSignInBtn" title="contoso.day accounts">Sign in</button>`;
+  }
   $("#user").hidden = false;
-  $("#signOutBtn").addEventListener("click", signOut);
+  $("#signOutBtn")?.addEventListener("click", signOut);
+  $("#guestSignInBtn")?.addEventListener("click", () => { setGuest(false); signIn(); });
   $("#gate").hidden = true; $("#appView").hidden = false;
+  if (startApp._started) return loadSummary();
+  startApp._started = true;
 
   mainMap = new WorldMap($("#map"), {
     motion: motionOn,

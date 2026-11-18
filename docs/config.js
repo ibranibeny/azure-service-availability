@@ -4,5 +4,6 @@ window.ASA_CONFIG = {
   clientId: "24ad041d-3dad-4680-9109-f273d855acb6",
   apiScope: "api://d6abc7fb-796f-4c82-95c8-9d8a10085125/Availability.Read",
   apiBase: "https://func-asa-api-cangze.azurewebsites.net/api",
-  domainHint: "contoso.day"
+  domainHint: "contoso.day",
+  guestAccess: true          // public read-only view, no sign-in needed (the API must allow it too)
 };

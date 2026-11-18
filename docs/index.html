@@ -38,8 +38,11 @@
         <p class="eyebrow">Contoso cloud team · internal</p>
         <h1>Where can I deploy it?</h1>
         <p class="lead">Pick an Azure region on the map and see which VM sizes, Azure Managed Redis SKUs and 28 more services it offers — refreshed on a schedule by Azure Functions running the Azure CLI.</p>
-        <button class="primary big" id="signInBtn" type="button"><img src="assets/icons/app-registrations.svg" alt=""> Sign in with Microsoft</button>
-        <p class="fine">Microsoft Entra ID sign-in. Only <b>contoso.day</b> accounts can read the data; guests and other tenants are refused by the API.</p>
+        <div class="gate-actions">
+          <button class="primary big" id="signInBtn" type="button"><img src="assets/icons/app-registrations.svg" alt=""> Sign in with Microsoft</button>
+          <button class="ghost big" id="guestBtn" type="button" hidden><img src="assets/icons/users.svg" alt=""> Continue as guest</button>
+        </div>
+        <p class="fine" id="gateFine">Microsoft Entra ID sign-in for <b>contoso.day</b> accounts.<span id="guestFine" hidden> Or continue as a guest: the same data, <b>read-only</b>, no sign-in.</span></p>
         <p class="notice" id="gateMsg" hidden></p>
       </div>
       <div class="gate-art" aria-hidden="true"><svg id="gateMap" class="worldmap deco"></svg></div>
@@ -152,7 +155,7 @@
         </div>
         <div>
           <h3>3 · Protected API</h3>
-          <p>The dashboard signs you in with <b>Microsoft Entra ID</b> (authorization code + PKCE, no secret in the page) and calls the API Function app with a bearer token. The API checks the signature, tenant, audience, the <code>Availability.Read</code> scope, the calling app, and that the account is a <b>contoso.day</b> member — otherwise it returns 401/403.</p>
+          <p>The dashboard signs you in with <b>Microsoft Entra ID</b> (authorization code + PKCE, no secret in the page) and calls the API Function app with a bearer token. The API checks the signature, tenant, audience, the <code>Availability.Read</code> scope, the calling app, and that the account is a <b>contoso.day</b> member — otherwise it returns 401/403. When guest access is on, requests with no token at all are served <b>read-only</b> as a guest (same snapshot, collector error details removed, rate-limited per address); a request with a bad token is still refused.</p>
         </div>
       </div>
       <h3>Read the data with care</h3>

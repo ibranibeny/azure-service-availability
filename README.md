@@ -51,7 +51,7 @@ The script registers resource providers, creates the two app registrations (API 
 
 ### Guest access (read-only, no sign-in)
 
-With `GUEST_ACCESS=true` (the default in `deploy.sh`) visitors can choose **Continue as guest** on the sign-in page, or open the dashboard with `?guest=1`, and browse the same snapshot **read-only** without an account. Signed-in `contoso.day` users get the same views; guests don't see the collector's raw error text. The API serves guests only when a request carries no token at all (a bad token is still refused) and limits each address to 120 requests a minute per instance. Turn it off with `GUEST_ACCESS=false bash scripts/deploy.sh` and `guestAccess: false` in `docs/config.js`.
+With `GUEST_ACCESS=true` (the default in `deploy.sh`) the dashboard is public: anyone who opens the GitHub Pages link lands straight in a **read-only** guest view of the same snapshot, without an account. `contoso.day` users can still sign in from the header. Signed-in `contoso.day` users get the same views; guests don't see the collector's raw error text. The API serves guests only when a request carries no token at all (a bad token is still refused) and limits each address to 120 requests a minute per instance. Turn it off with `GUEST_ACCESS=false bash scripts/deploy.sh` and `guestAccess: false` in `docs/config.js`.
 
 If Cloud Shell disconnects part-way (it times out after 20 idle minutes), open it again, clone the repo and run `bash scripts/finish-deploy.sh`: it waits for the latest infrastructure deployment, then builds and deploys both apps, runs the first collection and prints `docs/config.js`. It is safe to run more than once.
 
