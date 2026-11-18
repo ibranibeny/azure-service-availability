@@ -662,6 +662,9 @@ resource funcApi 'Microsoft.Web/sites@2024-04-01' = {
   dependsOn: [
     storageRolesApi
     storagePeDns
+    // Both apps join snet-functions; integrating them at the same time fails with
+    // "Failed to acquire ServiceAssociationLinkLease", so the API app waits for the collector.
+    funcCollector
   ]
 }
 
