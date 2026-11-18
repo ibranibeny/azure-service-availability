@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Azure Service Availability — VM sizes, Azure Managed Redis and more, by region</title>
+  <meta name="description" content="Region map and availability dashboard for Azure VM sizes, Azure Managed Redis and 28 more services. Data collected on a schedule by Azure Functions with the Azure CLI. Sign-in required.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://login.microsoftonline.com https://*.azurewebsites.net; object-src 'none'; base-uri 'self'">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <link rel="icon" href="assets/icons/region-management.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/css/app.css">
+  <script src="config.js"></script>
+  <script src="assets/js/world-110m.js"></script>
+  <script type="module" src="assets/js/app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="./">
+    <img src="assets/icons/region-management.svg" alt="">
+    <span><strong>Azure Service Availability</strong><small>VM sizes · Azure Managed Redis · 30 services · every region</small></span>
+  </a>
+  <div class="status" id="status" hidden>
+    <span class="pill live" id="freshness"></span>
+    <span class="pill" id="schedule"></span>
+  </div>
+  <div class="actions">
+    <button class="ghost" id="motionBtn" type="button">Animations</button>
+    <button class="ghost" id="themeBtn" type="button">Theme</button>
+    <span class="user" id="user" hidden></span>
+  </div>
+</header>
+
+<main>
+  <!-- Signed out -->
+  <section id="gate" class="gate" hidden>
+    <div class="gate-hero">
+      <div class="gate-text">
+        <p class="eyebrow">Contoso cloud team · internal</p>
+        <h1>Where can I deploy it?</h1>
+        <p class="lead">Pick an Azure region on the map and see which VM sizes, Azure Managed Redis SKUs and 28 more services it offers — refreshed on a schedule by Azure Functions running the Azure CLI.</p>
+        <button class="primary big" id="signInBtn" type="button"><img src="assets/icons/app-registrations.svg" alt=""> Sign in with Microsoft</button>
+        <p class="fine">Microsoft Entra ID sign-in. Only <b>contoso.day</b> accounts can read the data; guests and other tenants are refused by the API.</p>
+        <p class="notice" id="gateMsg" hidden></p>
+      </div>
+      <div class="gate-art" aria-hidden="true"><svg id="gateMap" class="worldmap deco"></svg></div>
+    </div>
+  </section>
+
+  <!-- Signed in -->
+  <section id="appView" hidden>
+    <div class="kpis" id="kpis"></div>
+    <p class="notice error" id="appError" hidden></p>
+    <div class="loading" id="loading" hidden><span class="spinner"></span> Loading the latest snapshot…</div>
+
+    <nav class="tabs" role="tablist" aria-label="Views">
+      <button class="tab" role="tab" data-tab="map" aria-selected="true">Region map</button>
+      <button class="tab" role="tab" data-tab="matrix" aria-selected="false">Service matrix</button>
+      <button class="tab" role="tab" data-tab="vm" aria-selected="false">VM size finder</button>
+      <button class="tab" role="tab" data-tab="amr" aria-selected="false">Azure Managed Redis</button>
+      <button class="tab" role="tab" data-tab="changes" aria-selected="false">Schedule &amp; changes</button>
+      <button class="tab" role="tab" data-tab="about" aria-selected="false">How it works</button>
+    </nav>
+
+    <div class="tabpanel" id="tab-map" role="tabpanel">
+      <div class="map-layout">
+        <div class="card map-card">
+          <div class="map-tools">
+            <label>Color by <select id="lens" aria-label="Color the map by"></select></label>
+            <label>Region <select id="regionPick" aria-label="Choose a region"></select></label>
+            <select id="geoZoom" aria-label="Zoom to a geography"></select>
+            <span class="zoom">
+              <button class="icon-btn" id="zoomIn" type="button" title="Zoom in" aria-label="Zoom in">+</button>
+              <button class="icon-btn" id="zoomOut" type="button" title="Zoom out" aria-label="Zoom out">−</button>
+              <button class="icon-btn" id="zoomReset" type="button" title="Whole world" aria-label="Reset zoom">⟲</button>
+            </span>
+          </div>
+          <div class="map-wrap"><svg id="map" class="worldmap" aria-label="World map of Azure regions"></svg></div>
+          <div class="legend" id="legend"></div>
+          <p class="fine">Scroll or pinch to zoom, drag to pan, select a dot to open the region. Region names appear when you zoom in.</p>
+        </div>
+        <aside class="card region-card" aria-live="polite">
+          <div id="regionHead"></div>
+        </aside>
+      </div>
+      <div class="cards2">
+        <div class="card" id="regionAmr"></div>
+        <div class="card wide" id="regionVm"></div>
+      </div>
+    </div>
+
+    <div class="tabpanel" id="tab-matrix" role="tabpanel" hidden>
+      <div class="card">
+        <div class="map-tools">
+          <select id="mxGeo" aria-label="Geography"></select>
+          <input id="mxQ" type="search" placeholder="Find a region" aria-label="Find a region">
+          <span class="legend inline"><span class="lg"><i class="sw s2"></i>Available, zone support listed</span><span class="lg"><i class="sw s1"></i>Available</span><span class="lg"><i class="sw s0"></i>Not offered</span></span>
+        </div>
+        <div class="table-wrap matrix-wrap"><table class="grid matrix" id="matrix"></table></div>
+        <p class="fine">Source: <code>az provider list</code> — resource type locations and zone mappings. Being listed doesn't guarantee capacity, quota or every SKU in that region.</p>
+      </div>
+    </div>
+
+    <div class="tabpanel" id="tab-vm" role="tabpanel" hidden>
+      <div class="map-layout">
+        <div class="card">
+          <label class="wide-label">VM size <input id="skuInput" list="skuList" placeholder="Standard_D4s_v5" autocomplete="off" spellcheck="false"></label>
+          <datalist id="skuList"></datalist>
+          <div class="map-wrap small"><svg id="finderMap" class="worldmap" aria-label="Regions offering the selected VM size"></svg></div>
+          <div class="legend"><span class="lg"><i class="sw s2"></i>Available with zones</span><span class="lg"><i class="sw s1"></i>Available, regional</span><span class="lg"><i class="sw w1"></i>Restricted for this subscription</span><span class="lg"><i class="sw s0"></i>Not offered</span></div>
+        </div>
+        <div class="card" id="finderResult"></div>
+      </div>
+    </div>
+
+    <div class="tabpanel" id="tab-amr" role="tabpanel" hidden>
+      <div class="map-layout">
+        <div class="card">
+          <h3 class="sec"><img class="ico" src="assets/icons/azure-managed-redis.svg" alt=""> Choose a tier and SKU</h3>
+          <div id="amrPicker"></div>
+          <div class="map-wrap small"><svg id="amrMap" class="worldmap" aria-label="Regions offering the selected Azure Managed Redis SKU"></svg></div>
+          <div class="legend"><span class="lg"><i class="sw s2"></i>Offered, zone redundant</span><span class="lg"><i class="sw s1"></i>Offered</span><span class="lg"><i class="sw w1"></i>Managed Redis available, no price for this SKU</span><span class="lg"><i class="sw s0"></i>Not offered</span></div>
+          <p class="fine">Region availability: <code>az provider list</code> (Microsoft.Cache/redisEnterprise). SKUs and prices: Azure Retail Prices API through <code>az rest</code>. Outlined SKUs are in preview according to Microsoft Learn.</p>
+        </div>
+        <div class="card" id="amrResult"></div>
+      </div>
+    </div>
+
+    <div class="tabpanel" id="tab-changes" role="tabpanel" hidden>
+      <div id="changes"></div>
+    </div>
+  </section>
+
+  <section class="tabpanel" id="tab-about" role="tabpanel">
+    <div class="card about">
+      <h2>How it works</h2>
+      <img class="arch" src="assets/img/architecture.svg" alt="Architecture: the dashboard on GitHub Pages signs users in with Microsoft Entra ID and calls the API Function app with a bearer token; the API reads the snapshot from Azure Managed Redis over a private endpoint; the collector Function app runs the Azure CLI on a timer with its managed identity and writes the snapshot to Redis.">
+      <div class="cols3">
+        <div>
+          <h3>1 · Scheduled collection</h3>
+          <p>An <b>Azure Functions timer trigger</b> (Flex Consumption, Indonesia Central) runs every 6 hours. It signs in with its own managed identity (<code>az login --identity</code>, Reader on the subscription) and runs the Azure CLI:</p>
+          <ul class="small">
+            <li><code>az account list-locations</code> — regions, coordinates, availability zones</li>
+            <li><code>az provider list</code> — where each service's resource type is offered, with zone mappings</li>
+            <li><code>az rest</code> on <code>Microsoft.Compute/skus</code> per region — VM sizes, zones and subscription restrictions (the API behind <code>az vm list-skus</code>, filtered on the server)</li>
+            <li><code>az rest</code> on <code>Microsoft.Web/geoRegions</code> — Functions Flex Consumption regions</li>
+            <li><code>az rest</code> on the Azure Retail Prices API — Azure Managed Redis SKUs priced in each region</li>
+          </ul>
+        </div>
+        <div>
+          <h3>2 · Cache</h3>
+          <p>The snapshot is written to <b>Azure Managed Redis</b> in one transaction, compressed, with a run history and a change log. Redis has public network access disabled, access keys disabled, and is reached through a <b>private endpoint</b> with Microsoft Entra tokens issued to each Function app's managed identity.</p>
+        </div>
+        <div>
+          <h3>3 · Protected API</h3>
+          <p>The dashboard signs you in with <b>Microsoft Entra ID</b> (authorization code + PKCE, no secret in the page) and calls the API Function app with a bearer token. The API checks the signature, tenant, audience, the <code>Availability.Read</code> scope, the calling app, and that the account is a <b>contoso.day</b> member — otherwise it returns 401/403.</p>
+        </div>
+      </div>
+      <h3>Read the data with care</h3>
+      <ul class="small">
+        <li>"Available" means the resource type or VM size is offered in the region for the collector's subscription. It doesn't guarantee capacity or quota at deployment time.</li>
+        <li>"Restricted" VM sizes carry a <code>NotAvailableForSubscription</code> restriction for this subscription; other subscriptions can differ.</li>
+        <li>Azure Managed Redis SKUs are those with a pay-as-you-go "Cache Instance" meter in the region; prices are list prices in USD per hour.</li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <span>Data: Azure CLI on Azure Functions (Flex Consumption) · cache: Azure Managed Redis · base map: Natural Earth (public domain) · icons: Microsoft Azure architecture icons.</span>
+  <a href="https://github.com/ibranibeny/azure-service-availability">Source on GitHub</a>
+</footer>
+<div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+<div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>
