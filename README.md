@@ -49,6 +49,8 @@ bash scripts/deploy.sh          # Indonesia Central by default
 
 The script registers resource providers, creates the two app registrations (API + dashboard), deploys `infra/main.bicep`, builds both Function apps locally (Python 3.12), deploys them, starts the first collection and prints the values for `docs/config.js`. Settings can be overridden with environment variables: `LOCATION`, `RG`, `PAGES_URL`, `ALLOWED_DOMAINS`, `SCHEDULE`, `REDIS_SKU`, `ENABLE_NAT`.
 
+If Cloud Shell disconnects part-way (it times out after 20 idle minutes), open it again, clone the repo and run `bash scripts/finish-deploy.sh`: it waits for the latest infrastructure deployment, then builds and deploys both apps, runs the first collection and prints `docs/config.js`. It is safe to run more than once.
+
 Run the collector on demand: `bash scripts/run-collector.sh`.
 
 ## Repository layout
@@ -57,7 +59,7 @@ Run the collector on demand: `bash scripts/run-collector.sh`.
 backend/collector   timer-triggered Function app (az cli -> Azure Managed Redis)
 backend/api         HTTP Function app (Entra ID token validation -> Redis -> JSON)
 infra               Bicep: Flex Consumption apps, Azure Managed Redis, VNet, private endpoints, storage, monitoring
-scripts             deploy, app registrations, build, run collector
+scripts             deploy, finish/resume deploy, app registrations, build, run collector
 docs                GitHub Pages dashboard (no frameworks; Natural Earth base map; official Azure icons)
 tests               offline tests for the collector and the token checks
 ```

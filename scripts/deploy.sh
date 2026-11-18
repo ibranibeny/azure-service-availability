@@ -32,34 +32,14 @@ source "$ROOT/scripts/entra-apps.sh"
 
 step "Infrastructure in $LOCATION (Bicep)"
 az group create -n "$RG" -l "$LOCATION" --tags app=azure-service-availability -o none
-az deployment group create -g "$RG" -n "asa-$(date +%Y%m%d%H%M%S)" -f "$ROOT/infra/main.bicep" \
+export DEPLOYMENT="asa-$(date -u +%Y%m%d%H%M%S)"
+echo "Deployment $DEPLOYMENT (if Cloud Shell disconnects, run: bash scripts/finish-deploy.sh)"
+az deployment group create -g "$RG" -n "$DEPLOYMENT" -f "$ROOT/infra/main.bicep" \
   -p location="$LOCATION" apiClientId="$API_APP_ID" spaClientId="$SPA_APP_ID" \
      allowedUserDomains="$ALLOWED_DOMAINS" allowedOrigins="[\"$PAGES_ORIGIN\"]" \
      collectSchedule="$SCHEDULE" redisSku="$REDIS_SKU" enableNatGateway="$ENABLE_NAT" \
-  --query properties.outputs -o json > "$OUT/outputs.json"
-COLLECTOR="$(jq -r .collectorAppName.value "$OUT/outputs.json")"
-API="$(jq -r .apiAppName.value "$OUT/outputs.json")"
-API_BASE="$(jq -r .apiBaseUrl.value "$OUT/outputs.json")"
+  --no-wait -o none
 
-step "Build and deploy the Function apps"
-bash "$ROOT/scripts/build.sh" collector "$OUT/collector.zip"
-bash "$ROOT/scripts/build.sh" api "$OUT/api.zip"
-az functionapp deployment source config-zip -g "$RG" -n "$COLLECTOR" --src "$OUT/collector.zip" --build-remote false -o none
-az functionapp deployment source config-zip -g "$RG" -n "$API" --src "$OUT/api.zip" --build-remote false -o none
-
-step "First collection (the schedule then runs it automatically: $SCHEDULE UTC)"
-bash "$ROOT/scripts/run-collector.sh"
-
-step "Dashboard settings for docs/config.js"
-cat > "$OUT/config.js" <<JS
-window.ASA_CONFIG = {
-  tenantId: "$TENANT_ID",
-  clientId: "$SPA_APP_ID",
-  apiScope: "api://$API_APP_ID/Availability.Read",
-  apiBase: "$API_BASE",
-  domainHint: "${ALLOWED_DOMAINS%%,*}"
-};
-JS
-cat "$OUT/config.js"
-echo
-echo "Collector: $COLLECTOR   API: $API_BASE"
+# Build, deploy code, first collection and dashboard settings
+export API_APP_ID SPA_APP_ID
+bash "$ROOT/scripts/finish-deploy.sh"
