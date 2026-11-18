@@ -2,6 +2,7 @@
 import { configured, handleRedirect, account, signIn, signOut, AuthError } from "./auth.js";
 import { get, ApiError, guestAllowed, isGuest, setGuest } from "./api.js";
 import { WorldMap } from "./map.js";
+import { initArch } from "./arch.js";
 
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
@@ -34,7 +35,7 @@ function wirePrefs() {
     localStorage.setItem("asa.theme", order[(order.indexOf(cur) + 1) % 3]);
     applyPrefs();
   });
-  $("#motionBtn").addEventListener("click", () => { localStorage.setItem("asa.motion", motionOn() ? "off" : "on"); applyPrefs(); });
+  $("#motionBtn").addEventListener("click", () => { localStorage.setItem("asa.motion", motionOn() ? "off" : "on"); applyPrefs(); arch?.syncMotion(); });
 }
 
 // ---------- time helpers ----------
@@ -116,7 +117,8 @@ function writeHash() {
   history.replaceState(null, "", "#" + parts.join("/"));
 }
 function readHash() {
-  const [tab, arg] = decodeURIComponent(location.hash.slice(1)).split("/");
+  let [tab, arg] = decodeURIComponent(location.hash.slice(1)).split("/");
+  if (tab === "architecture" || tab === "how-it-works") tab = "about";
   return { tab: ["map", "matrix", "vm", "amr", "changes", "about"].includes(tab) ? tab : "map", arg };
 }
 
@@ -524,8 +526,10 @@ async function openChanges() {
 }
 
 // ---------- boot ----------
+let arch = null;
 async function boot() {
   applyPrefs(); wirePrefs();
+  try { arch = initArch($("#arch"), { motionOn }); } catch (e) { console.error("Architecture animation:", e); }
   $("#signInBtn").addEventListener("click", () => signIn());
   $("#guestBtn").addEventListener("click", () => { setGuest(true); startApp(null); });
   $$(".tab").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
