@@ -2,6 +2,7 @@
 export const TOUR = ["collect", "guest", "signedin", "deploy"];
 export const SEGS = {"br_pages":["browser","pages"],"repo_pages":["repo","pages"],"br_entra":["browser","entra"],"br_api":["browser","api"],"api_entra":["api","entra"],"api_mi":["api","mi"],"col_mi":["collector","mi"],"mi_entra":["mi","entra"],"api_port":["api","portA"],"portA_pe":["portA","pe"],"col_port":["collector","portC"],"portC_pe":["portC","pe"],"pe_redis":["pe","redis"],"pe_sto":["pe","storage"],"dns":["dns","vnet"],"col_arm":["collector","arm"],"col_prices":["collector","prices"],"col_appi":["collector","appi"],"sh_arm":["shell","arm"],"sh_entra":["shell","entra"],"sh_col":["shell","collector"],"sh_api":["shell","api"]};
 export const TIMING = {"pxPerS": 240, "minHop": 0.45, "burstGap": 0.14, "dwell": 0.9, "emptyDwell": 2.4, "flowGap": 1.2};
+export const RING = ["collect", 0];
 export const FLOWS = [
  {
   "id": "collect",

@@ -3,6 +3,7 @@ import { configured, handleRedirect, account, signIn, signOut, AuthError } from 
 import { get, ApiError, guestAllowed, isGuest, setGuest } from "./api.js";
 import { WorldMap } from "./map.js";
 import { initArch } from "./arch.js";
+import * as ARCH from "./arch-flows.js";
 
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
@@ -529,7 +530,7 @@ async function openChanges() {
 let arch = null;
 async function boot() {
   applyPrefs(); wirePrefs();
-  try { arch = initArch($("#arch"), { motionOn }); } catch (e) { console.error("Architecture animation:", e); }
+  try { arch = initArch($("#arch"), { motionOn, data: ARCH }); } catch (e) { console.error("Architecture animation:", e); }
   $("#signInBtn").addEventListener("click", () => signIn());
   $("#guestBtn").addEventListener("click", () => { setGuest(true); startApp(null); });
   $$(".tab").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));

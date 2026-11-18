@@ -1,15 +1,18 @@
-// Architecture tab: hop-by-hop traffic animation over the inline architecture SVG.
-// Packets travel along the connector paths; each step is narrated and names its Microsoft Learn source.
-// Motion is opt-in: it plays by itself only when animations are switched on in the header, or after the
-// visitor pressed Play here once. Play and Pause are remembered in localStorage.
-import { FLOWS, TOUR, SEGS, TIMING } from "./arch-flows.js";
-
+// Hop-by-hop traffic animation over an inline diagram SVG (the dashboard's Architecture tab and the
+// storage diagram in the deployment guide). Packets travel along the connector paths; each step is
+// narrated and names its Microsoft Learn source. The flow data comes from a generated module.
+// Motion is opt-in: it plays by itself only when animations are switched on, or after the visitor
+// pressed Play here once. Play and Pause are remembered in localStorage.
 const NS = "http://www.w3.org/2000/svg";
-const KEY = "asa.archPlay", SPEED_KEY = "asa.archSpeed";
+const SPEED_KEY = "asa.archSpeed";
 
-export function initArch(root, { motionOn }) {
+export function initArch(root, { motionOn, data }) {
   const svg = root && root.querySelector("#archSvg");
-  if (!svg) return null;
+  if (!svg || !data) return null;
+  const { FLOWS, TOUR, SEGS, TIMING, RING } = data;
+  const canvas = root.querySelector(".arch-canvas");
+  const KEY = canvas.dataset.storageKey || "asa.archPlay";
+  const IDLE_NAME = canvas.dataset.idleName || "Flows", IDLE_TAG = canvas.dataset.idleTag || "";
   const q = (s) => root.querySelector(s);
   const pkLayer = svg.querySelector("#arch-pkts"), badgeLayer = svg.querySelector("#arch-badges");
   const byId = new Map(FLOWS.map((f) => [f.id, f]));
@@ -44,7 +47,7 @@ export function initArch(root, { motionOn }) {
     segG.forEach((g, id) => { g.classList.toggle("in", S.live && inSegs.has(id)); g.classList.toggle("on", S.live && onSegs.has(id)); });
     nodeG.forEach((g, id) => { g.classList.toggle("in", S.live && inNodes.has(id)); g.classList.toggle("hot", S.live && hot.has(id)); });
     const timer = svg.querySelector("#arch-timer");
-    if (timer) timer.classList.toggle("ring", S.live && S.flow === "collect" && S.step === 0);
+    if (timer) timer.classList.toggle("ring", Boolean(S.live && RING && S.flow === RING[0] && S.step === RING[1]));
     badges();
     caption();
   }
@@ -70,8 +73,8 @@ export function initArch(root, { motionOn }) {
   function caption() {
     const f = flow(), st = f.steps[Math.min(S.step, f.steps.length - 1)];
     const live = S.live && st;
-    q("#archFlowName").textContent = live ? f.name : "Four flows";
-    q("#archFlowTag").textContent = live ? f.tagline : "scheduled collection · guest read · signed-in read · deploy & publish";
+    q("#archFlowName").textContent = live ? f.name : IDLE_NAME;
+    q("#archFlowTag").textContent = live ? f.tagline : IDLE_TAG;
     q("#archStepNo").textContent = live ? `Step ${Math.min(S.step, f.steps.length - 1) + 1} of ${f.steps.length}` : "";
     q("#archStepTitle").textContent = live ? st.title + "." : "";
     q("#archStepText").textContent = live ? st.text

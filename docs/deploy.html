@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Deploy Azure Service Availability · step-by-step guide</title>
+  <meta name="description" content="Deploy the Azure Service Availability dashboard to your own subscription with one command in Azure Cloud Shell, publish it with GitHub Pages, and see why Azure Functions needs a storage account.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <link rel="icon" href="assets/icons/region-management.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/css/app.css">
+  <script type="module" src="assets/js/guide.js"></script>
+</head>
+<body class="guide-page">
+<header class="topbar">
+  <a class="brand" href="./">
+    <img src="assets/icons/region-management.svg" alt="">
+    <span><strong>Azure Service Availability</strong><small>Deployment guide</small></span>
+  </a>
+  <nav class="navlinks" aria-label="Site">
+    <a href="./">Dashboard</a>
+    <a href="./#architecture">Architecture</a>
+    <a href="deploy.html" aria-current="page">Deploy</a>
+  </nav>
+  <div class="actions">
+    <button class="ghost" id="motionBtn" type="button">Animations</button>
+    <button class="ghost" id="themeBtn" type="button">Theme</button>
+  </div>
+</header>
+
+<div class="guide">
+  <nav class="toc" aria-label="On this page">
+    <h2>On this page</h2>
+    <ol>
+      <li><a href="#values">Your values</a></li>
+      <li><a href="#what">What you deploy</a></li>
+      <li><a href="#prereqs">Before you start</a></li>
+      <li><a href="#settings">Settings</a></li>
+      <li><a href="#step1">1 · Get the code</a></li>
+      <li><a href="#step2">2 · Deploy</a></li>
+      <li><a href="#step3">3 · Publish the dashboard</a></li>
+      <li><a href="#step4">4 · Check it works</a></li>
+      <li><a href="#storage" class="hl">Why a storage account?</a></li>
+      <li><a href="#operate">Run it day to day</a></li>
+      <li><a href="#troubleshoot">Troubleshooting</a></li>
+      <li><a href="#cleanup">Clean up</a></li>
+      <li><a href="#sources">Sources</a></li>
+    </ol>
+  </nav>
+
+  <main class="doc">
+    <section id="top" class="hero">
+      <p class="eyebrow">Step-by-step guide</p>
+      <h1>Deploy Azure Service Availability</h1>
+      <p class="lead">One command in Azure Cloud Shell builds the whole backend in your subscription: two Azure Functions apps on the Flex Consumption plan, Azure Managed Redis, a locked-down storage account, private networking and monitoring. Then GitHub Pages publishes the dashboard.</p>
+      <div class="hero-chips">
+        <span class="chip">Azure Cloud Shell (Bash)</span>
+        <span class="chip">Bicep</span>
+        <span class="chip">Managed identities, no secrets in the repo</span>
+        <span class="chip chip-ok">Tested end to end on 18 Nov 2026 · Indonesia Central</span>
+      </div>
+      <div class="hero-cta">
+        <a class="btn primary" href="#prereqs">Start the deployment</a>
+        <a class="btn" href="#storage">Why a storage account?</a>
+        <a class="btn" href="./#architecture">See the architecture</a>
+      </div>
+    </section>
+
+    <section id="values">
+      <h2>Your values</h2>
+      <p>Type your own values and every command on this page updates. Nothing leaves your browser. The defaults are the reference deployment.</p>
+      <form class="form-grid" id="valuesForm" autocomplete="off">
+        <label>GitHub owner<input name="owner" spellcheck="false" aria-describedby="valuesHint"></label>
+        <label>Repository<input name="repo" spellcheck="false"></label>
+        <label>Sign-in domain<input name="domain" spellcheck="false"></label>
+        <label>Azure region<input name="location" spellcheck="false"></label>
+        <label>Resource group<input name="rg" spellcheck="false"></label>
+        <button type="button" class="ghost" id="valuesReset">Reset</button>
+      </form>
+      <p class="fine" id="valuesHint">Dashboard URL: <var class="v" data-v="pages">https://ibranibeny.github.io/azure-service-availability/</var></p>
+    </section>
+
+    <section id="what">
+      <h2>What you deploy</h2>
+      <p><code>scripts/deploy.sh</code> creates the resources below in one resource group, plus two app registrations in Microsoft Entra ID and one role assignment on the subscription. Resource names end in a short suffix made from your subscription, resource group and region (<code>cangze</code> in the reference deployment).</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Resource</th><th>Name in the reference deployment</th><th>Why it's there</th></tr></thead>
+        <tbody>
+          <tr><td><img class="ico" src="assets/icons/function-apps.svg" alt=""> Function app, Flex Consumption, Python 3.12</td><td><code>func-asa-collector-cangze</code></td><td>Timer trigger every 6 hours (UTC). Runs the Azure CLI with its managed identity and writes the snapshot to Redis.</td></tr>
+          <tr><td><img class="ico" src="assets/icons/function-apps.svg" alt=""> Function app, Flex Consumption, Python 3.12</td><td><code>func-asa-api-cangze</code></td><td>Read-only HTTP API for the dashboard: guest reads without a token, Microsoft Entra ID tokens for signed-in users.</td></tr>
+          <tr><td>Flex Consumption plans ×2</td><td><code>plan-asa-collector-cangze</code>, <code>plan-asa-api-cangze</code></td><td>One plan per app.</td></tr>
+          <tr><td><img class="ico" src="assets/icons/managed-identities.svg" alt=""> User-assigned managed identities ×2</td><td><code>id-asa-collector-cangze</code>, <code>id-asa-api-cangze</code></td><td>How the apps sign in to Azure Resource Manager, Redis, Storage and Application Insights, with no secrets.</td></tr>
+          <tr><td><img class="ico" src="assets/icons/azure-managed-redis.svg" alt=""> Azure Managed Redis, Balanced B0, high availability</td><td><code>redis-asa-cangze</code></td><td>The snapshot the dashboard reads. Microsoft Entra authentication only; no public network access.</td></tr>
+          <tr><td><img class="ico" src="assets/icons/storage-accounts.svg" alt=""> Storage account, StorageV2, Standard_LRS</td><td><code>stasacangzeawpizgg</code></td><td>Required by Azure Functions: deployment packages and the Functions host's own state. <a href="#storage">Why a storage account?</a></td></tr>
+          <tr><td><img class="ico" src="assets/icons/virtual-networks.svg" alt=""> Virtual network</td><td><code>vnet-asa-cangze</code> 10.62.0.0/24</td><td><code>snet-functions</code> /26, shared by both apps for VNet integration and delegated to <code>Microsoft.App/environments</code>; Learn recommends /26 when several Flex Consumption apps share a subnet. <code>snet-private-endpoints</code> /27. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/flex-consumption-how-to" target="_blank" rel="noopener">Learn ↗</a></td></tr>
+          <tr><td><img class="ico" src="assets/icons/private-endpoints.svg" alt=""> Private endpoints ×4, private DNS zones ×4</td><td>blob, queue, table, Redis</td><td>Private paths from the apps to Storage and Redis.</td></tr>
+          <tr><td><img class="ico" src="assets/icons/application-insights.svg" alt=""> Application Insights + Log Analytics</td><td><code>appi-asa-cangze</code>, <code>log-asa-cangze</code></td><td>Telemetry with Microsoft Entra authentication; local authentication is off.</td></tr>
+          <tr><td>Role assignments</td><td>—</td><td>Collector: Reader on the subscription. Both apps: Storage Blob Data Owner, Storage Queue Data Contributor and Storage Table Data Contributor on the storage account, Monitoring Metrics Publisher on Application Insights, and the Redis access policy <code>default</code>.</td></tr>
+          <tr><td><img class="ico" src="assets/icons/nat.svg" alt=""> NAT gateway + public IP (optional)</td><td><code>nat-asa-cangze</code></td><td>Only with <code>ENABLE_NAT=true</code>: a fixed outbound IP address.</td></tr>
+          <tr><td><img class="ico" src="assets/icons/app-registrations.svg" alt=""> Entra app registrations ×2</td><td>Azure Service Availability API, Azure Service Availability Dashboard</td><td>The API exposes the scope <code>Availability.Read</code>; the dashboard is a single-page app with no secret.</td></tr>
+          <tr><td><img class="ico" src="assets/icons/folder-website.svg" alt=""> GitHub Pages site</td><td><var class="v" data-v="pages">https://ibranibeny.github.io/azure-service-availability/</var></td><td>The dashboard. Public.</td></tr>
+        </tbody>
+      </table></div>
+      <p>How the traffic flows between these parts, hop by hop: <a href="./#architecture">Architecture tab</a>.</p>
+    </section>
+
+    <section id="prereqs">
+      <h2>Before you start</h2>
+      <ul class="checks">
+        <li><b>Rights in the Azure subscription.</b> You create resources and role assignments, including Reader for the collector on the whole subscription. Your account needs <code>Microsoft.Authorization/roleAssignments/write</code> at subscription scope: for example Owner, or Contributor plus User Access Administrator or Role Based Access Control Administrator. <a href="https://learn.microsoft.com/en-us/azure/role-based-access-control/role-assignments-portal" target="_blank" rel="noopener">Learn ↗</a></li>
+        <li><b>App registrations in Microsoft Entra ID.</b> By default every user can register applications. If your tenant turned that off, you need the Application Developer role. <a href="https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/delegate-app-roles" target="_blank" rel="noopener">Learn ↗</a></li>
+        <li><b>A region with Flex Consumption and Azure Managed Redis.</b> The dashboard's Service matrix shows both. Everything goes into one region; Learn recommends keeping the function app's storage account in the app's region. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/storage-considerations" target="_blank" rel="noopener">Learn ↗</a></li>
+        <li><b>Azure Cloud Shell (Bash).</b> It includes the Azure CLI and Bicep. Sessions end after 20 minutes without interaction, and ephemeral sessions keep no files, but the Azure deployment keeps running and you can resume it (<a href="#troubleshoot">Troubleshooting</a>). Building the packages needs Python 3.12, the apps' runtime; <code>scripts/build.sh</code> checks and stops otherwise. Cloud Shell had 3.12.15 on 18 Nov 2026; if yours differs, point <code>PYTHON</code> to a 3.12 interpreter. <a href="https://learn.microsoft.com/en-us/azure/cloud-shell/overview" target="_blank" rel="noopener">Learn ↗</a> · <a href="https://learn.microsoft.com/en-us/azure/cloud-shell/features" target="_blank" rel="noopener">tools ↗</a></li>
+        <li><b>A GitHub account.</b> With GitHub Free, Pages needs a public repository. Pages sites are public on the internet even when the repository is private, which is fine here: the site and <code>config.js</code> hold public identifiers only, no secrets. <a href="https://docs.github.com/en/pages/getting-started-with-github-pages/creating-a-github-pages-site" target="_blank" rel="noopener">GitHub Docs ↗</a></li>
+        <li><b>Resource providers.</b> The script registers any that are missing: <code>Microsoft.App</code> (Learn requires it for Flex Consumption VNet integration), <code>Microsoft.Web</code>, <code>Microsoft.Cache</code>, <code>Microsoft.Network</code>, <code>Microsoft.Storage</code>, <code>Microsoft.Insights</code>, <code>Microsoft.OperationalInsights</code>, <code>Microsoft.ManagedIdentity</code>. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/flex-consumption-how-to" target="_blank" rel="noopener">Learn ↗</a></li>
+      </ul>
+    </section>
+
+    <section id="settings">
+      <h2>Settings</h2>
+      <p>The script reads environment variables. For a fork, set at least <code>PAGES_URL</code> and <code>ALLOWED_DOMAINS</code>.</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Variable</th><th>Default</th><th>What it controls</th></tr></thead>
+        <tbody>
+          <tr><td><code>PAGES_URL</code></td><td><code>https://ibranibeny.github.io/azure-service-availability/</code></td><td>Your dashboard URL. It becomes the dashboard app's redirect URI, and its origin becomes the only browser origin the API allows (CORS).</td></tr>
+          <tr><td><code>ALLOWED_DOMAINS</code></td><td><code>contoso.day</code></td><td>Comma-separated account domains the API accepts from signed-in users.</td></tr>
+          <tr><td><code>LOCATION</code></td><td><code>indonesiacentral</code></td><td>Azure region for every resource.</td></tr>
+          <tr><td><code>RG</code></td><td><code>rg-azure-service-availability</code></td><td>Resource group, created if it doesn't exist.</td></tr>
+          <tr><td><code>SCHEDULE</code></td><td><code>0 0 */6 * * *</code></td><td>Collector timer: six-field NCRONTAB in UTC. The default runs at 00:00, 06:00, 12:00 and 18:00 UTC (07:00, 13:00, 19:00 and 01:00 WIB). Linux Flex Consumption doesn't support a time-zone setting. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-timer" target="_blank" rel="noopener">Learn ↗</a></td></tr>
+          <tr><td><code>GUEST_ACCESS</code></td><td><code>true</code></td><td>Public read-only view without sign-in, limited to 120 requests a minute per address on each instance.</td></tr>
+          <tr><td><code>REDIS_SKU</code></td><td><code>Balanced_B0</code></td><td>Azure Managed Redis SKU.</td></tr>
+          <tr><td><code>ENABLE_NAT</code></td><td><code>false</code></td><td>Adds a NAT gateway so outbound traffic uses one fixed public IP.</td></tr>
+          <tr><td><code>APPS</code></td><td><code>collector api</code></td><td>Which Function apps to build and deploy: <code>api</code>, <code>collector</code>, or <code>none</code> to apply settings only.</td></tr>
+          <tr><td><code>PAGES_ORIGIN</code></td><td>taken from <code>PAGES_URL</code></td><td>Set it only if the browser origin differs from the one in <code>PAGES_URL</code>.</td></tr>
+          <tr><td><code>API_APP_NAME</code>, <code>SPA_APP_NAME</code></td><td>Azure Service Availability API / Dashboard</td><td>Display names of the two app registrations. Reruns find the apps by these names and update them.</td></tr>
+        </tbody>
+      </table></div>
+      <p class="callout warn">Reruns apply whatever settings they get. Export your values once per Cloud Shell session (Step 2 does) so a later run doesn't fall back to the defaults.</p>
+    </section>
+
+    <section id="step1">
+      <h2><span class="stepno">1</span> Get the code</h2>
+      <ol>
+        <li>Fork <a href="https://github.com/ibranibeny/azure-service-availability" target="_blank" rel="noopener">ibranibeny/azure-service-availability</a> into your GitHub account.</li>
+        <li>Open <a href="https://shell.azure.com" target="_blank" rel="noopener">Azure Cloud Shell</a>, choose <b>Bash</b>, and check that you're in the right subscription:
+<pre class="code"><code>az account show --query "{subscription:name, user:user.name, tenant:tenantId}" -o table
+<span class="c"># only if it's the wrong one:</span>
+az account set --subscription "&lt;subscription name or ID&gt;"</code></pre></li>
+        <li>Clone your fork:
+<pre class="code"><code>git clone <var class="v" data-v="clone">https://github.com/ibranibeny/azure-service-availability.git</var>
+cd <var class="v" data-v="repo">azure-service-availability</var></code></pre></li>
+      </ol>
+    </section>
+
+    <section id="step2">
+      <h2><span class="stepno">2</span> Deploy</h2>
+<pre class="code"><code>export PAGES_URL=<var class="v" data-v="pages">https://ibranibeny.github.io/azure-service-availability/</var>
+export ALLOWED_DOMAINS=<var class="v" data-v="domain">contoso.day</var>
+export LOCATION=<var class="v" data-v="location">indonesiacentral</var>
+export RG=<var class="v" data-v="rg">rg-azure-service-availability</var>
+bash scripts/deploy.sh 2&gt;&amp;1 | tee ~/deploy.log</code></pre>
+      <p>The script prints a heading for each phase. This is what each one does:</p>
+      <div class="tablewrap"><table class="phases">
+        <thead><tr><th>Heading</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td><code>==&gt; Signed-in account and subscription</code></td><td>Shows where it will deploy. Press <kbd>Ctrl</kbd>+<kbd>C</kbd> now if that's the wrong subscription.</td></tr>
+          <tr><td><code>==&gt; Resource providers</code></td><td>Registers the providers that aren't registered yet.</td></tr>
+          <tr><td><code>==&gt; Microsoft Entra app registrations (API + dashboard)</code></td><td><code>scripts/entra-apps.sh</code> creates or updates the API app (scope <code>Availability.Read</code>, v2 tokens) and the dashboard app (single-page app, redirect URIs <code>PAGES_URL</code> and <code>http://localhost:8080/</code>, pre-authorized for the API). It tries to grant admin consent and prints both app IDs.</td></tr>
+          <tr><td><code>==&gt; Infrastructure in …</code></td><td>Creates the resource group, starts <code>infra/main.bicep</code> as deployment <code>asa-&lt;UTC time&gt;</code> without waiting for it, and prints the command to resume if Cloud Shell disconnects.</td></tr>
+          <tr><td><code>==&gt; Build Function apps in the background</code></td><td>While Azure deploys, builds both zip packages locally with Python 3.12: the collector (52 MB, it carries the Azure CLI) and the API (7 MB).</td></tr>
+          <tr><td><code>==&gt; Infrastructure deployment in …</code></td><td>Checks every 30 seconds until the deployment succeeds. If it fails, it prints each failed resource with its error. The API app waits for the collector because both join <code>snet-functions</code>. A rerun on 18 Nov 2026 finished in under 2 minutes; a first run takes longer.</td></tr>
+          <tr><td><code>==&gt; Deploy the Function app code</code></td><td><code>az functionapp deployment source config-zip --build-remote false</code> for each app, up to 3 tries. The package lands in the app's own blob container. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/flex-consumption-how-to" target="_blank" rel="noopener">Learn ↗</a></td></tr>
+          <tr><td><code>==&gt; First collection</code></td><td>Runs the timer function once through the collector's admin endpoint; <code>HTTP 202</code> means accepted. After that the schedule takes over. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/functions-manually-run-non-http" target="_blank" rel="noopener">Learn ↗</a></td></tr>
+          <tr><td><code>==&gt; Dashboard settings for docs/config.js</code></td><td>Prints the values for the dashboard. They're public identifiers, not secrets.</td></tr>
+        </tbody>
+      </table></div>
+      <p>The end of the output looks like this (values from the reference deployment; yours differ):</p>
+<pre class="code out"><code>==&gt; Dashboard settings for docs/config.js
+window.ASA_CONFIG = {
+  tenantId: "a1571616-cb5c-4d81-93ab-83c3856d83f2",
+  clientId: "24ad041d-3dad-4680-9109-f273d855acb6",
+  apiScope: "api://d6abc7fb-796f-4c82-95c8-9d8a10085125/Availability.Read",
+  apiBase: "https://func-asa-api-cangze.azurewebsites.net/api",
+  domainHint: "contoso.day",
+  guestAccess: true
+};
+
+Collector: func-asa-collector-cangze   API: https://func-asa-api-cangze.azurewebsites.net/api
+Health check: curl -s https://func-asa-api-cangze.azurewebsites.net/api/health</code></pre>
+      <p class="callout test"><b>Differs from Learn's default.</b> For Python, Learn says to request a remote build (<code>--build-remote true</code>), mainly to avoid packages built on Windows for Linux. This project builds on Linux in Cloud Shell instead: <code>build.sh</code> insists on Python 3.12 and stops if a compiled package needs a newer Linux than the Functions image. That worked in the reference run. A remote build wasn't tested with this private-storage setup. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/flex-consumption-how-to" target="_blank" rel="noopener">Learn ↗</a></p>
+    </section>
+
+    <section id="step3">
+      <h2><span class="stepno">3</span> Publish the dashboard</h2>
+      <ol>
+        <li>Put the printed block into <code>docs/config.js</code> in your fork. On GitHub: open <code>docs/config.js</code>, select <b>Edit</b>, replace the content and <b>Commit changes</b>.</li>
+        <li>Turn on GitHub Pages: <b>Settings › Pages › Build and deployment › Source: Deploy from a branch</b>, branch <code>main</code>, folder <code>/docs</code>, then <b>Save</b>. The folder has a <code>.nojekyll</code> file, so GitHub serves the files as they are. Changes can take up to 10 minutes to appear. <a href="https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site" target="_blank" rel="noopener">GitHub Docs ↗</a></li>
+        <li>Open <var class="v" data-v="pages">https://ibranibeny.github.io/azure-service-availability/</var>. You land in the guest view; <b>Sign in</b> uses your Entra tenant.</li>
+      </ol>
+      <p class="callout warn">If the dashboard ends up at a different URL than <code>PAGES_URL</code> (a custom domain or a renamed repository), run <code>PAGES_URL=&lt;real URL&gt; APPS=none bash scripts/deploy.sh</code> so the redirect URI and CORS match. Otherwise sign-in and API calls fail.</p>
+    </section>
+
+    <section id="step4">
+      <h2><span class="stepno">4</span> Check it works</h2>
+      <p>In the same Cloud Shell folder:</p>
+<pre class="code"><code>API=$(jq -r .apiBaseUrl.value .deploy/outputs.json)
+curl -s "$API/health"                                                    <span class="c"># {"status":"ok"}</span>
+curl -s -o /dev/null -w '%{http_code}\n' "$API/summary"                  <span class="c"># 200 with the guest view on, 401 when it's off</span>
+curl -s -o /dev/null -w '%{http_code}\n' -H 'Authorization: Bearer x.y.z' "$API/summary"   <span class="c"># 401: a bad token is refused, never treated as a guest</span></code></pre>
+      <p>Then confirm the first collection in Application Insights. The first query installs the <code>log-analytics</code> CLI extension (preview).</p>
+<pre class="code"><code>WS=$(az monitor log-analytics workspace list -g "$RG" --query "[0].customerId" -o tsv)
+az monitor log-analytics query -w "$WS" -o table --analytics-query \
+  "AppTraces | where Message startswith 'Collection finished' | project TimeGenerated, Message | order by TimeGenerated desc | take 3"</code></pre>
+      <p>In the reference run it logged:</p>
+<pre class="code out"><code>Collection finished: {"at": "&lt;time of the run, UTC&gt;", "durationSec": 88.5, "regions": 65, "vmRows": 67469, "azCalls": 75, "errors": 0}</code></pre>
+      <p>Finally, look at the storage account from the management plane. The script only lists names and settings; it never reads blob, queue or table contents:</p>
+<pre class="code"><code>bash scripts/inspect-storage.sh             <span class="c"># add --timings for deployment history and the slowest resources</span></code></pre>
+      <p>It should show public network access <code>Disabled</code>, <code>allowSharedKeyAccess: false</code>, private endpoints for blob, queue and table, the two package containers next to the containers the Functions host creates, and the role assignments of both identities. On the dashboard, <b>Schedule &amp; changes</b> lists the run and the time of the next one.</p>
+    </section>
+
+    <section id="storage">
+      <h2>Why a storage account?</h2>
+      <p class="answer"><b>Because Azure Functions needs one to run.</b> Every function app is tied to a general-purpose storage account, its <i>host storage</i>, set in the <code>AzureWebJobsStorage</code> connection, and the app can't start without it. The Functions runtime keeps its own working state there, and on the Flex Consumption plan the deployed code lives there too. The dashboard's data isn't in it: that's in Azure Managed Redis. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/manage-connections" target="_blank" rel="noopener">Learn ↗</a></p>
+
+      <div class="card arch-card">
+        <!-- arch:widget -->
+      <h3 class="arch-h">Why a storage account? Watch what goes in and out</h3>
+      <p class="muted small arch-intro">Pick a flow and press play. Each step names the setting behind it and links to its Microsoft Learn source.</p>
+      <div class="arch-wrap" id="arch">
+        <div class="arch-bar">
+          <div class="arch-flows" role="group" aria-label="Choose a flow">
+            <button type="button" data-flow="tour" aria-pressed="true" style="--c:var(--accent)"><span class="dot"></span>All flows</button>
+            <button type="button" data-flow="pkg" aria-pressed="false" style="--c:var(--az-f-deploy)"><span class="dot"></span>Deploy and start</button>
+            <button type="button" data-flow="timer" aria-pressed="false" style="--c:var(--az-f-collect)"><span class="dot"></span>Timer: once, on time</button>
+            <button type="button" data-flow="keys" aria-pressed="false" style="--c:var(--az-f-signedin)"><span class="dot"></span>Keys and a manual run</button>
+            <button type="button" data-flow="mgmt" aria-pressed="false" style="--c:var(--az-f-guest)"><span class="dot"></span>What you can see from outside</button>
+          </div>
+          <div class="arch-ctl">
+            <button type="button" class="ghost" id="archPrev" aria-label="Previous step" title="Previous step (←)">&#9664;</button>
+            <button type="button" class="primary" id="archPlay">&#9654; Play traffic</button>
+            <button type="button" class="ghost" id="archNext" aria-label="Next step" title="Next step (→)">&#9654;</button>
+            <button type="button" class="ghost" id="archFull" aria-label="Full screen" title="Full screen (F)">&#x26F6;</button>
+            <label class="small">Speed <select id="archSpeed" aria-label="Animation speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
+          </div>
+        </div>
+        <div class="arch-canvas" tabindex="0" aria-label="Storage account diagram. Space plays or pauses the animation, the arrow keys step through it, F opens full screen." data-idle-name="Four flows" data-idle-tag="deploy and start · timer · keys · what you can see from outside" data-storage-key="asa.storagePlay">
+          <svg class="arch-svg" id="archSvg" viewBox="0 -16 1320 748" role="img" aria-labelledby="arch-title arch-desc"><title id="arch-title">Why the Function apps need a storage account</title><desc id="arch-desc">The two Flex Consumption Function apps use one storage account, reached only through private endpoints with managed-identity tokens: deployment packages, the timer lock and schedule status, function keys and host diagnostics. The dashboard data itself lives in Azure Managed Redis.</desc><defs><marker id="arch-m-public" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-public" d="M0 0L10 5L0 10z"/></marker><marker id="arch-m-private" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-private" d="M0 0L10 5L0 10z"/></marker><marker id="arch-m-identity" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-identity" d="M0 0L10 5L0 10z"/></marker><marker id="arch-m-telemetry" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-telemetry" d="M0 0L10 5L0 10z"/></marker><marker id="arch-m-ops" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-ops" d="M0 0L10 5L0 10z"/></marker><marker id="arch-m-on" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="mk-on" d="M0 0L10 5L0 10z"/></marker></defs><g class="az-zone z-ops"><rect class="az-zr" x="16" y="24" width="256" height="120" rx="14"/><text class="az-zt" x="30" y="46">Operator</text></g><g class="az-zone z-identity"><rect class="az-zr" x="296" y="24" width="600" height="120" rx="14"/><image href="assets/icons/tenant-properties.svg" x="308" y="32" width="18" height="18"/><text class="az-zt" x="332" y="46">Microsoft Entra ID · contoso.day tenant</text></g><g class="az-zone z-web"><rect class="az-zr" x="920" y="24" width="384" height="120" rx="14"/><text class="az-zt" x="934" y="46">Azure management plane</text></g><g class="az-zone z-azure"><rect class="az-zr" x="296" y="164" width="1008" height="552" rx="14"/><image href="assets/icons/resource-groups.svg" x="780" y="172" width="18" height="18"/><text class="az-zk" x="804" y="183">Azure subscription › resource group</text><text class="az-zt" x="804" y="200">rg-azure-service-availability · Indonesia Central</text></g><g class="az-zone z-vnet"><rect class="az-zr" x="312" y="308" width="560" height="266" rx="10"/><image href="assets/icons/virtual-networks.svg" x="436" y="316" width="18" height="18"/><text class="az-zt" x="460" y="330">vnet-asa-cangze · 10.62.0.0/24</text></g><g class="az-zone z-subnet"><rect class="az-zr" x="326" y="340" width="532" height="84" rx="10"/><image href="assets/icons/subnet.svg" x="436" y="347" width="15" height="15"/><text class="az-zt" x="457" y="359">snet-functions · 10.62.0.0/26</text></g><g class="az-zone z-subnet"><rect class="az-zr" x="326" y="436" width="532" height="124" rx="10"/><image href="assets/icons/subnet.svg" x="436" y="443" width="15" height="15"/><text class="az-zt" x="457" y="455">snet-private-endpoints · 10.62.0.64/27</text></g><g class="az-zone z-store"><rect class="az-zr" x="896" y="212" width="392" height="488" rx="14"/><image href="assets/icons/storage-accounts.svg" x="908" y="220" width="18" height="18"/><text class="az-zk" x="932" y="231">Storage account · StorageV2 · Standard_LRS</text><text class="az-zt" x="932" y="248">stasacangzeawpizgg</text><g class="az-lockg"><title>Public network access disabled</title><path class="az-lock" d="M1266 228h8a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1zm1.6 0v-2.2a2.4 2.4 0 0 1 4.8 0v2.2h-1.4v-2.2a1 1 0 0 0-2 0v2.2z"/></g></g><g class="az-zone z-svc"><rect class="az-zr" x="912" y="262" width="360" height="244" rx="10"/><image href="assets/icons/storage-container.svg" x="924" y="269" width="15" height="15"/><text class="az-zt" x="945" y="281">Blob service · containers</text></g><g class="az-zone z-svc"><rect class="az-zr" x="912" y="516" width="360" height="76" rx="10"/><image href="assets/icons/storage-table.svg" x="924" y="523" width="15" height="15"/><text class="az-zt" x="945" y="535">Table service</text></g><g class="az-zone z-svc"><rect class="az-zr" x="912" y="602" width="360" height="76" rx="10"/><image href="assets/icons/storage-queue.svg" x="924" y="609" width="15" height="15"/><text class="az-zt" x="945" y="621">Queue service</text></g><g id="arch-segs"><g class="az-seg-g cat-ops" data-seg="sh_arm"><path id="arch-seg-sh_arm" class="az-seg" d="M180 54 L180 15 Q180 6 189 6 L1103 6 Q1112 6 1112 15 L1112 54"/><text class="az-sl" x="646" y="0" text-anchor="middle">az functionapp keys list · inspect-storage.sh</text></g><g class="az-seg-g cat-ops" data-seg="sh_api"><path id="arch-seg-sh_api" class="az-seg" d="M256 104 L275 104 Q284 104 284 113 L284 247 Q284 256 293 256 L312 256"/><text class="az-sl" x="290" y="158" text-anchor="start">zip deploy</text></g><g class="az-seg-g cat-ops" data-seg="sh_col"><path id="arch-seg-sh_col" class="az-seg" d="M256 104 L275 104 Q284 104 284 113 L284 185 Q284 194 293 194 L416 194 A6 6 0 0 1 428 194 L714 194 A6 6 0 0 1 726 194 L751 194 Q760 194 760 203 L760 220"/></g><g class="az-seg-g cat-identity" data-seg="api_entra"><path id="arch-seg-api_entra" class="az-seg" d="M422 220 L422 126"/><text class="az-sl" x="430" y="180" text-anchor="start">token</text></g><g class="az-seg-g cat-identity" data-seg="col_entra"><path id="arch-seg-col_entra" class="az-seg" d="M720 220 L720 126"/><text class="az-sl" x="728" y="160" text-anchor="start">token</text></g><g class="az-seg-g cat-private" data-seg="api_port"><path id="arch-seg-api_port" class="az-seg" d="M422 292 L422 372"/></g><g class="az-seg-g cat-private" data-seg="col_port"><path id="arch-seg-col_port" class="az-seg" d="M700 292 L700 372"/></g><g class="az-seg-g cat-private" data-seg="portA_pe"><path id="arch-seg-portA_pe" class="az-seg" d="M422 412 L422 458"/></g><g class="az-seg-g cat-private" data-seg="portC_pe"><path id="arch-seg-portC_pe" class="az-seg" d="M700 412 L700 458"/></g><g class="az-seg-g cat-private" data-seg="pe_pkgC"><path id="arch-seg-pe_pkgC" class="az-seg" d="M716 472 L875 472 Q884 472 884 463 L884 325 Q884 316 893 316 L928 316"/></g><g class="az-seg-g cat-private" data-seg="pe_pkgA"><path id="arch-seg-pe_pkgA" class="az-seg" d="M716 472 L875 472 Q884 472 884 463 L884 377 Q884 368 893 368 L928 368"/></g><g class="az-seg-g cat-private" data-seg="pe_hosts"><path id="arch-seg-pe_hosts" class="az-seg" d="M716 472 L875 472 Q884 472 884 463 L884 429 Q884 420 893 420 L928 420"/></g><g class="az-seg-g cat-private" data-seg="pe_secrets"><path id="arch-seg-pe_secrets" class="az-seg" d="M716 472 L928 472"/><text class="az-sl" x="760" y="466" text-anchor="middle">blob</text></g><g class="az-seg-g cat-private" data-seg="pe_diag"><path id="arch-seg-pe_diag" class="az-seg" d="M716 498 L869 498 Q878 498 878 507 L878 555 Q878 564 887 564 L928 564"/><text class="az-sl" x="800" y="492" text-anchor="middle">table</text></g><g class="az-seg-g cat-private" data-seg="pe_queue"><path id="arch-seg-pe_queue" class="az-seg" d="M716 522 L857 522 Q866 522 866 531 L866 641 Q866 650 875 650 L928 650"/><text class="az-sl" x="840" y="516" text-anchor="middle">queue</text></g><g class="az-seg-g cat-link" data-seg="dns"><path id="arch-seg-dns" class="az-seg" d="M422 612 L422 574" style="marker-end:none"/><text class="az-sl" x="430" y="596" text-anchor="start">linked to the VNet</text></g><g class="az-seg-g cat-ops" data-seg="arm_st"><path id="arch-seg-arm_st" class="az-seg" d="M1180 126 L1180 212"/><text class="az-sl" x="1188" y="190" text-anchor="start">management plane</text></g></g><g class="az-zone z-box"><rect class="az-zr" x="16" y="164" width="256" height="236" rx="12"/></g><text class="az-lgh" x="30" y="186">Legend</text><circle cx="38" cy="202" r="5" class="lg-dot lg-pkg"/><text class="az-lg" x="52" y="206">Deploy and start</text><circle cx="38" cy="219" r="5" class="lg-dot lg-timer"/><text class="az-lg" x="52" y="223">Timer: once, on time</text><circle cx="38" cy="236" r="5" class="lg-dot lg-keys"/><text class="az-lg" x="52" y="240">Keys and a manual run</text><circle cx="38" cy="253" r="5" class="lg-dot lg-mgmt"/><text class="az-lg" x="52" y="257">What you can see from outside</text><g class="az-seg-g cat-public"><path class="az-seg" d="M30 274h34"/></g><text class="az-lg" x="74" y="278">HTTPS to a public endpoint</text><g class="az-seg-g cat-private"><path class="az-seg" d="M30 292h34"/></g><text class="az-lg" x="74" y="296">private: VNet → private endpoint</text><g class="az-seg-g cat-identity"><path class="az-seg" d="M30 310h34"/></g><text class="az-lg" x="74" y="314">identity: Entra tokens</text><g class="az-seg-g cat-ops"><path class="az-seg" d="M30 328h34"/></g><text class="az-lg" x="74" y="332">deployment and operations</text><g class="az-seg-g cat-link"><path class="az-seg" d="M30 346h34" style="marker-end:none"/></g><text class="az-lg" x="74" y="350">private DNS zone link</text><path class="az-lock" d="M42 360h8a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1zm1.6 0v-2.2a2.4 2.4 0 0 1 4.8 0v2.2h-1.4v-2.2a1 1 0 0 0-2 0v2.2z"/><text class="az-lg" x="74" y="368">public network access disabled</text><g class="az-zone z-box"><rect class="az-zr" x="16" y="416" width="256" height="124" rx="12"/></g><text class="az-lgh" x="30" y="438">Account settings (Bicep)</text><circle cx="34" cy="455" r="2.2" class="lg-bullet"/><text class="az-note" x="42" y="459">Public network access: Disabled</text><circle cx="34" cy="472" r="2.2" class="lg-bullet"/><text class="az-note" x="42" y="476">Shared key access: Disabled</text><circle cx="34" cy="489" r="2.2" class="lg-bullet"/><text class="az-note" x="42" y="493">Entra ID (OAuth) by default · TLS 1.2</text><circle cx="34" cy="506" r="2.2" class="lg-bullet"/><text class="az-note" x="42" y="510">No anonymous blob access</text><circle cx="34" cy="523" r="2.2" class="lg-bullet"/><text class="az-note" x="42" y="527">Same region as the apps</text><g class="az-zone z-box"><rect class="az-zr" x="16" y="556" width="256" height="100" rx="12"/></g><text class="az-lgh" x="30" y="578">Storage roles per app identity</text><circle cx="34" cy="595" r="2.2" class="lg-bullet"/><text class="az-note" x="42" y="599">Blob Data Owner: host storage</text><circle cx="34" cy="612" r="2.2" class="lg-bullet"/><text class="az-note" x="42" y="616">Table Data Contributor: diagnostics</text><circle cx="34" cy="629" r="2.2" class="lg-bullet"/><text class="az-note" x="42" y="633">Queue Data Contributor: not needed today</text><g class="az-zone z-box"><rect class="az-zr" x="548" y="600" width="324" height="92" rx="12"/></g><text class="az-lgh" x="562" y="622">Not in this storage account</text><circle cx="566" cy="639" r="2.2" class="lg-bullet"/><text class="az-note" x="574" y="643">The dashboard data: that&#x27;s in Azure Managed Redis</text><circle cx="566" cy="656" r="2.2" class="lg-bullet"/><text class="az-note" x="574" y="660">An Azure Files content share: Flex has none</text><circle cx="566" cy="673" r="2.2" class="lg-bullet"/><text class="az-note" x="574" y="677">Keys or connection strings in app settings</text><g id="arch-nodes"><g class="az-node" data-node="shell" id="arch-node-shell"><rect class="az-card" x="32" y="54" width="224" height="72" rx="10"/><image href="assets/icons/azure-cloud-shell.svg" x="44" y="73" width="34" height="34"/><text class="az-t" x="88" y="78">Azure Cloud Shell</text><text class="az-m" x="88" y="95">bibrani@contoso.day</text><text class="az-s" x="88" y="111">deploy.sh · run-collector.sh</text></g><g class="az-node" data-node="entra" id="arch-node-entra"><rect class="az-card" x="312" y="54" width="568" height="72" rx="10"/><image href="assets/icons/tenant-properties.svg" x="324" y="73" width="34" height="34"/><text class="az-t" x="368" y="78">Microsoft Entra ID</text><text class="az-s" x="368" y="95">tokens for Azure Storage (https://storage.azure.com)</text><text class="az-s" x="368" y="111">issued to the apps&#x27; user-assigned managed identities</text></g><g class="az-node" data-node="arm" id="arch-node-arm"><rect class="az-card" x="936" y="54" width="352" height="72" rx="10"/><image href="assets/icons/azure-a.svg" x="948" y="73" width="34" height="34"/><text class="az-t" x="992" y="78">Azure Resource Manager</text><text class="az-m" x="992" y="95">management.azure.com</text><text class="az-s" x="992" y="111">Bicep · keys list · inspect-storage.sh</text></g><g class="az-node" data-node="api" id="arch-node-api"><rect class="az-card" x="312" y="220" width="224" height="72" rx="10"/><image href="assets/icons/function-apps.svg" x="324" y="239" width="34" height="34"/><text class="az-t" x="368" y="244">Function app</text><text class="az-m" x="368" y="261">func-asa-api-cangze</text><text class="az-s" x="368" y="277">identity id-asa-api</text><g class="az-pill"><rect x="500.0" y="232" width="28.0" height="15" rx="7.5"/><text x="514.0" y="242.5" text-anchor="middle">API</text></g></g><g class="az-node" data-node="collector" id="arch-node-collector"><rect class="az-card" x="552" y="220" width="236" height="72" rx="10"/><image href="assets/icons/function-apps.svg" x="564" y="239" width="34" height="34"/><text class="az-t" x="608" y="244">Function app</text><text class="az-m" x="608" y="261">func-asa-collector-cangze</text><text class="az-s" x="608" y="277">identity id-asa-collector</text><g class="az-pill"><rect x="711.2" y="232" width="68.8" height="15" rx="7.5"/><text x="745.6" y="242.5" text-anchor="middle">COLLECTOR</text></g><g class="az-timer" id="arch-timer"><rect x="562" y="209" width="142.0" height="22" rx="11"/><image href="assets/icons/scheduler.svg" x="567" y="212" width="16" height="16"/><text x="588" y="223.5">0 0 */6 * * *  UTC</text></g></g><g class="az-node az-port" data-node="portA" id="arch-node-portA"><rect class="az-card" x="347" y="372" width="150" height="40" rx="8"/><image href="assets/icons/subnet.svg" x="357" y="381" width="22" height="22"/><text class="az-t" x="387" y="396">VNet integration</text></g><g class="az-node az-port" data-node="portC" id="arch-node-portC"><rect class="az-card" x="625" y="372" width="150" height="40" rx="8"/><image href="assets/icons/subnet.svg" x="635" y="381" width="22" height="22"/><text class="az-t" x="665" y="396">VNet integration</text></g><g class="az-node" data-node="pe" id="arch-node-pe"><rect class="az-card" x="380" y="458" width="336" height="72" rx="10"/><image href="assets/icons/private-endpoints.svg" x="392" y="477" width="34" height="34"/><text class="az-t" x="436" y="482">Private endpoints</text><text class="az-s" x="436" y="499">blob · queue · table</text><text class="az-s" x="436" y="515">one NIC each in snet-private-endpoints</text></g><g class="az-node" data-node="dns" id="arch-node-dns"><rect class="az-card" x="312" y="612" width="220" height="72" rx="10"/><image href="assets/icons/dns-zones.svg" x="324" y="631" width="34" height="34"/><text class="az-t" x="368" y="636">Private DNS zones</text><text class="az-m" x="368" y="653">privatelink.*</text><text class="az-s" x="368" y="669">blob · queue · table zones</text></g><g class="az-node az-row" data-node="pkgC" id="arch-node-pkgC"><rect class="az-card" x="928" y="294" width="328" height="44" rx="10"/><image href="assets/icons/blob-block.svg" x="938" y="304.0" width="24" height="24"/><text class="az-rt" x="970" y="313">app-package-collector</text><text class="az-s" x="970" y="329">collector package · 52 MB, Azure CLI inside</text></g><g class="az-node az-row" data-node="pkgA" id="arch-node-pkgA"><rect class="az-card" x="928" y="346" width="328" height="44" rx="10"/><image href="assets/icons/blob-block.svg" x="938" y="356.0" width="24" height="24"/><text class="az-rt" x="970" y="365">app-package-api</text><text class="az-s" x="970" y="381">API package · 7 MB</text></g><g class="az-node az-row" data-node="hosts" id="arch-node-hosts"><rect class="az-card" x="928" y="398" width="328" height="44" rx="10"/><image href="assets/icons/blob-block.svg" x="938" y="408.0" width="24" height="24"/><text class="az-t az-rp" x="970" y="417">Functions host state</text><text class="az-s" x="970" y="433">timer lock · schedule status (use_monitor)</text></g><g class="az-node az-row" data-node="secrets" id="arch-node-secrets"><rect class="az-card" x="928" y="450" width="328" height="44" rx="10"/><image href="assets/icons/blob-block.svg" x="938" y="460.0" width="24" height="24"/><text class="az-t az-rp" x="970" y="469">Function keys</text><text class="az-s" x="970" y="485">master, host and function keys (default store)</text></g><g class="az-node az-row" data-node="diag" id="arch-node-diag"><rect class="az-card" x="928" y="544" width="328" height="40" rx="10"/><image href="assets/icons/storage-table.svg" x="938" y="552.0" width="24" height="24"/><text class="az-t az-rp" x="970" y="563">Diagnostic events</text><text class="az-s" x="970" y="579">written by the Functions host when it hits problems</text></g><g class="az-node az-row" data-node="noq" id="arch-node-noq"><rect class="az-card" x="928" y="630" width="328" height="40" rx="10"/><image href="assets/icons/storage-queue.svg" x="938" y="638.0" width="24" height="24"/><text class="az-t az-rp" x="970" y="649">Not used by these two apps</text><text class="az-s" x="970" y="665">blob or queue triggers and Durable would use it</text></g></g><g id="arch-badges"></g><g id="arch-pkts"></g></svg>
+          <button type="button" class="arch-overlay" id="archOverlay">&#9654; Play the traffic animation</button>
+        </div>
+        <div class="arch-caption" id="archCaption" aria-live="polite">
+          <div class="arch-cap-head"><span class="arch-flowname"><span class="dot"></span><b id="archFlowName">Four flows</b></span><span class="muted" id="archFlowTag"></span><span class="arch-stepno" id="archStepNo"></span></div>
+          <p class="arch-cap-body"><b id="archStepTitle"></b> <span id="archStepText"></span> <a id="archStepSrc" target="_blank" rel="noopener" hidden></a></p>
+          <div class="arch-chips" id="archChips" role="group" aria-label="Steps"></div>
+        </div>
+        <details class="arch-all"><summary>All flows step by step, with sources</summary><div id="archAll"></div></details>
+        <p class="fine">Static image: <a href="assets/img/storage-account.svg" target="_blank" rel="noopener">storage-account.svg</a> · full solution: <a href="./#architecture">Architecture tab</a>.</p>
+      </div>
+      <!-- /arch:widget -->
+      </div>
+
+      <h3>What it holds in this solution</h3>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Where</th><th>What's there</th><th>Used by</th><th>Why it's needed</th></tr></thead>
+        <tbody>
+          <tr><td>Blob · <code>app-package-collector</code></td><td>Collector package, 52 MB (Python code plus the Azure CLI)</td><td>Flex Consumption platform</td><td>A Flex Consumption app is deployed from a blob container and fetches its package when it starts. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/flex-consumption-plan" target="_blank" rel="noopener">Learn ↗</a></td></tr>
+          <tr><td>Blob · <code>app-package-api</code></td><td>API package, 7 MB</td><td>Flex Consumption platform</td><td>Same, for the API app. When apps share a storage account, Learn says each needs its own deployment container, or one app's package overwrites the other's. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/flex-consumption-how-to" target="_blank" rel="noopener">Learn ↗</a></td></tr>
+          <tr><td>Blob · Functions host</td><td>Timer lock and schedule status</td><td>Timer trigger</td><td>The lock makes sure only one instance runs the collection when the app scales out, and that it doesn't start again while a run is still going. Schedule monitoring (<code>use_monitor=True</code> in <code>function_app.py</code>) keeps the occurrences so the schedule survives restarts; a late run arrives with <code>past_due</code>. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-timer" target="_blank" rel="noopener">Learn ↗</a></td></tr>
+          <tr><td>Blob · Functions host</td><td>Master, host and function keys</td><td>Functions host, <code>az functionapp keys list</code>, <code>run-collector.sh</code></td><td>Blob storage is the default key store (<code>AzureWebJobsSecretStorageType</code> = <code>blob</code>). <a href="https://learn.microsoft.com/en-us/azure/azure-functions/functions-app-settings" target="_blank" rel="noopener">Learn ↗</a></td></tr>
+          <tr><td>Table</td><td>Diagnostic events</td><td>Functions host</td><td>The Functions host writes diagnostic events here; they help troubleshoot the app. Writing them needs Storage Table Data Contributor. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/manage-connections" target="_blank" rel="noopener">Learn ↗</a></td></tr>
+          <tr><td>Queue</td><td>Nothing today</td><td>—</td><td>Timer and HTTP functions don't use it. Blob triggers, Durable Functions and the retry handling of some triggers would. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/storage-considerations" target="_blank" rel="noopener">Learn ↗</a></td></tr>
+          <tr><td>Azure Files</td><td>Not used</td><td>—</td><td>Flex Consumption doesn't keep the app's content on an Azure Files share, unlike the Consumption and Elastic Premium plans. Flex can mount your own file shares, but this project doesn't. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/storage-considerations" target="_blank" rel="noopener">Learn ↗</a></td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Why not keep everything in Redis?</h3>
+      <p>They hold different things. Redis holds what the dashboard reads, written by our code. The storage account holds what the Functions platform needs to run the apps: their code, the timer coordination and their keys. Azure Functions requires a storage account that supports blob, queue and table storage for this, so it can't be replaced with Redis. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/storage-considerations" target="_blank" rel="noopener">Learn ↗</a></p>
+
+      <h3>How it's locked down, and why</h3>
+      <div class="cards2col">
+        <div class="mini"><h4><img class="ico" src="assets/icons/managed-identities.svg" alt=""> Identities instead of keys</h4>
+          <p>Host storage uses an identity-based connection: <code>AzureWebJobsStorage__accountName</code>, <code>__credential=managedidentity</code> and <code>__clientId</code> of each app's user-assigned identity. The package containers use <code>UserAssignedIdentity</code> authentication. Shared key access is disabled on the account (<code>allowSharedKeyAccess: false</code>), so no account key or SAS signed with it works at all. Learn describes managed identities as the highest level of security for connecting to Azure resources <a href="https://learn.microsoft.com/en-us/azure/azure-functions/flex-consumption-how-to" target="_blank" rel="noopener">↗</a>, and Flex Consumption supports them fully for host storage <a href="https://learn.microsoft.com/en-us/azure/azure-functions/manage-connections" target="_blank" rel="noopener">↗</a>. Learn's infrastructure-as-code guidance also recommends turning shared key access off <a href="https://learn.microsoft.com/en-us/azure/azure-functions/functions-infrastructure-as-code" target="_blank" rel="noopener">↗</a>.</p></div>
+        <div class="mini"><h4><img class="ico" src="assets/icons/subscriptions.svg" alt=""> Least-privilege roles</h4>
+          <p>Storage Blob Data Owner is the minimum for host storage and covers the timer lock and the package container (which needs at least Storage Blob Data Contributor). Storage Table Data Contributor lets the host write diagnostic events. Storage Queue Data Contributor is also assigned, though these timer and HTTP functions don't need it (queues serve blob triggers, Durable Functions and retries). Removing it would tighten access further; that wasn't tested here. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/manage-connections" target="_blank" rel="noopener">Learn ↗</a></p></div>
+        <div class="mini"><h4><img class="ico" src="assets/icons/private-endpoints.svg" alt=""> Private network only</h4>
+          <p>Public network access is disabled. The apps reach blob, queue and table through private endpoints in <code>snet-private-endpoints</code>, and the <code>privatelink.blob/queue/table.core.windows.net</code> zones are linked to the VNet so the names resolve to private IPs. Flex Consumption sends all outbound traffic through VNet integration, and it's the dynamic plan Learn points to for secured storage accounts with managed identities. The trade-off: you can't browse the contents from the portal or Cloud Shell, only from inside the VNet. Settings and container lists still work through Azure Resource Manager. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/configure-networking-how-to" target="_blank" rel="noopener">Learn ↗</a></p></div>
+        <div class="mini"><h4><img class="ico" src="assets/icons/storage-accounts.svg" alt=""> One account for both apps, same region</h4>
+          <p>Learn allows apps to share a storage account and recommends a separate account per app for performance; on Flex Consumption the apps' host IDs don't collide. These two apps are light (a timer every 6 hours and a small read-only API), so one account means 3 private endpoints instead of 6. Split it if the load grows. The account is in the apps' region, as Learn recommends. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/storage-considerations" target="_blank" rel="noopener">Learn ↗</a></p></div>
+      </div>
+      <p class="callout test"><b>Tested, not spelled out on Learn.</b> Package deployment and app startup worked with the storage account's public network access disabled in the reference run on 18 Nov 2026. Learn covers secured storage and Flex package deployment separately but doesn't describe this exact path, so rerun Step 4 after you change the network or storage settings.</p>
+      <p class="callout">Look after this account: Learn points out that it holds function code, access keys and other service data, so limit who can reach it and monitor both control-plane activity (for example listing keys) and data-plane operations. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/storage-considerations" target="_blank" rel="noopener">Learn ↗</a></p>
+    </section>
+
+    <section id="operate">
+      <h2>Run it day to day</h2>
+      <p>Run these from the repository folder in Cloud Shell, with your values exported as in Step 2.</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Task</th><th>Command</th></tr></thead>
+        <tbody>
+          <tr><td>Collect now instead of waiting for the timer</td><td><code>bash scripts/run-collector.sh</code></td></tr>
+          <tr><td>Change the schedule (UTC)</td><td><code>SCHEDULE="0 0 */3 * * *" APPS=none bash scripts/deploy.sh</code></td></tr>
+          <tr><td>Deploy a code change to one app</td><td><code>APPS=api bash scripts/deploy.sh</code> or <code>APPS=collector bash scripts/deploy.sh</code></td></tr>
+          <tr><td>Turn the public guest view off</td><td><code>GUEST_ACCESS=false APPS=none bash scripts/deploy.sh</code>, then set <code>guestAccess: false</code> in <code>docs/config.js</code></td></tr>
+          <tr><td>Use one fixed outbound IP</td><td><code>ENABLE_NAT=true APPS=none bash scripts/deploy.sh</code></td></tr>
+          <tr><td>Finish a deployment after Cloud Shell disconnected</td><td><code>bash scripts/finish-deploy.sh</code></td></tr>
+          <tr><td>See the storage account's settings and containers</td><td><code>bash scripts/inspect-storage.sh --timings</code></td></tr>
+        </tbody>
+      </table></div>
+      <p>The timer doesn't retry a failed run; the next run happens at the next scheduled time, and <code>run-collector.sh</code> runs it on demand. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-timer" target="_blank" rel="noopener">Learn ↗</a></p>
+    </section>
+
+    <section id="troubleshoot">
+      <h2>Troubleshooting</h2>
+      <p>The first four came up in the reference deployment and are fixed in the scripts.</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>What you see</th><th>Why</th><th>What to do</th></tr></thead>
+        <tbody>
+          <tr><td><code>Failed to acquire ServiceAssociationLinkLease</code> on the API Function app</td><td>Both Flex Consumption apps joined <code>snet-functions</code> at the same time.</td><td>Fixed: the API app now waits for the collector in <code>main.bicep</code>. If you still see it, rerun <code>deploy.sh</code>.</td></tr>
+          <tr><td>Cloud Shell disconnected during the deployment</td><td>20 minutes without interaction, or the browser tab closed.</td><td>The Azure deployment keeps running. Open Cloud Shell, clone again if the session was ephemeral, export your values and run <code>bash scripts/finish-deploy.sh</code>.</td></tr>
+          <tr><td><code>curl: (6) Could not resolve host</code> at First collection</td><td>Newer Azure CLI versions return the host name under <code>properties.defaultHostName</code>.</td><td>Fixed in <code>run-collector.sh</code>; run it again.</td></tr>
+          <tr><td><code>Admin consent not granted …</code></td><td>The script's consent call didn't succeed. In the reference run this happened even with an administrator account; the cause wasn't confirmed.</td><td>Users may see a one-time consent prompt at first sign-in; sign-in still worked in the reference run. To skip the prompt, an admin with at least Cloud Application Administrator opens <b>Entra ID › App registrations › Azure Service Availability Dashboard › API permissions › Grant admin consent</b>. <a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/grant-admin-consent" target="_blank" rel="noopener">Learn ↗</a></td></tr>
+          <tr><td>403 errors from Storage or Redis just after deployment</td><td>New role assignments can take up to 10 minutes to apply.</td><td>Wait, then <code>bash scripts/run-collector.sh</code>. <a href="https://learn.microsoft.com/en-us/azure/azure-functions/manage-connections" target="_blank" rel="noopener">Learn ↗</a></td></tr>
+          <tr><td>The portal can't show the storage containers' contents</td><td>Public network access is disabled on purpose.</td><td>Use <code>inspect-storage.sh</code> for settings and names, or a machine inside the VNet for contents.</td></tr>
+          <tr><td>Dashboard: "isn't connected to its API yet"</td><td><code>docs/config.js</code> still holds empty values.</td><td>Do Step 3.</td></tr>
+          <tr><td>Dashboard: "The API can't be reached (network or CORS)"</td><td>The page's origin isn't the one the API allows.</td><td>Rerun with the right <code>PAGES_URL</code> and <code>APPS=none</code>.</td></tr>
+          <tr><td>The Pages site doesn't show your latest commit</td><td>Publishing takes a while.</td><td>Wait up to 10 minutes. If it never updates, check <b>Settings › Pages</b> for the branch and folder. <a href="https://docs.github.com/en/pages/getting-started-with-github-pages/creating-a-github-pages-site" target="_blank" rel="noopener">GitHub Docs ↗</a></td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="cleanup">
+      <h2>Clean up</h2>
+      <p>The resources keep costing money while they exist (Azure Managed Redis is billed by the hour), so delete everything when you're done. Remove the subscription-level Reader assignment first: deleting the resource group doesn't remove assignments made at subscription scope.</p>
+<pre class="code"><code>RG=<var class="v" data-v="rg">rg-azure-service-availability</var>
+SUB=$(az account show --query id -o tsv)
+PRINCIPAL=$(az identity list -g "$RG" --query "[?contains(name, 'collector')].principalId" -o tsv)
+az role assignment delete --assignee "$PRINCIPAL" --role Reader --scope "/subscriptions/$SUB"
+az group delete -n "$RG" --yes --no-wait
+for N in "Azure Service Availability Dashboard" "Azure Service Availability API"; do
+  az ad app delete --id "$(az ad app list --display-name "$N" --query "[0].appId" -o tsv)"
+done</code></pre>
+      <p>On GitHub, set <b>Settings › Pages › Branch</b> to <b>None</b> and save, or delete the fork.</p>
+    </section>
+
+    <section id="sources">
+      <h2>Sources</h2>
+      <p>Checked on 18 Nov 2026. Where Learn doesn't describe a behaviour, the page says it was tested instead.</p>
+      <ul class="sources">
+        <li><a href="https://learn.microsoft.com/en-us/azure/azure-functions/storage-considerations" target="_blank" rel="noopener">Storage considerations for Azure Functions</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/azure-functions/manage-connections" target="_blank" rel="noopener">Configure connections to remote services in Azure Functions</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/azure-functions/functions-app-settings" target="_blank" rel="noopener">App settings reference for Azure Functions</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-timer" target="_blank" rel="noopener">Timer trigger for Azure Functions</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/azure-functions/flex-consumption-plan" target="_blank" rel="noopener">Azure Functions Flex Consumption plan hosting</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/azure-functions/flex-consumption-how-to" target="_blank" rel="noopener">Create and manage function apps in the Flex Consumption plan</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/azure-functions/configure-networking-how-to" target="_blank" rel="noopener">How to use a secured storage account with Azure Functions</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/azure-functions/functions-infrastructure-as-code" target="_blank" rel="noopener">Automate resource deployment for your function app</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/azure-functions/functions-networking-options" target="_blank" rel="noopener">Azure Functions networking options</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/azure-functions/functions-manually-run-non-http" target="_blank" rel="noopener">Manually run a non HTTP-triggered function</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/private-link/private-endpoint-dns" target="_blank" rel="noopener">Azure private endpoint DNS zone values</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/storage/common/shared-key-authorization-prevent" target="_blank" rel="noopener">Prevent Shared Key authorization for an Azure Storage account</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/role-based-access-control/role-assignments-portal" target="_blank" rel="noopener">Assign Azure roles using the Azure portal</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/delegate-app-roles" target="_blank" rel="noopener">Delegate app registration permissions in Microsoft Entra ID</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/grant-admin-consent" target="_blank" rel="noopener">Grant tenant-wide admin consent to an application</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/cloud-shell/overview" target="_blank" rel="noopener">What is Azure Cloud Shell?</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/cloud-shell/features" target="_blank" rel="noopener">Azure Cloud Shell features</a></li>
+        <li><a href="https://docs.github.com/en/pages/getting-started-with-github-pages/creating-a-github-pages-site" target="_blank" rel="noopener">GitHub Docs: Creating a GitHub Pages site</a></li>
+        <li><a href="https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site" target="_blank" rel="noopener">GitHub Docs: Configuring a publishing source for your GitHub Pages site</a></li>
+      </ul>
+    </section>
+  </main>
+</div>
+
+<footer class="foot">
+  <span>Deployed and tested in Indonesia Central on 18 Nov 2026 · Azure CLI 2.91 in Cloud Shell, 2.93 inside the collector · icons: Microsoft Azure architecture icons.</span>
+  <a href="https://github.com/ibranibeny/azure-service-availability">Source on GitHub</a>
+</footer>
+</body>
+</html>
