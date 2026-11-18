@@ -115,6 +115,36 @@ SEGS = {
 
 FLOW_ORDER = ["collect", "guest", "signedin", "deploy"]
 
+# ---- presentation settings used by build.py ----
+KEY = "arch"                                   # output names: docs/assets/img/architecture*.svg, arch-flows.js
+TITLE = "Azure Service Availability architecture"
+DESC = ("GitHub Pages dashboard in the browser; optional Microsoft Entra ID sign-in; API and collector Function apps "
+        "(Flex Consumption, Indonesia Central) with user-assigned managed identities; VNet integration and private endpoints "
+        "to Azure Managed Redis and Storage; the collector calls Azure Resource Manager and the Azure Retail Prices API every 6 hours.")
+FLOWCOL = {"collect": "f-collect", "guest": "f-guest", "signedin": "f-signedin", "deploy": "f-deploy"}
+BADGE_MANUAL = {("collect", 0): (950, 247), ("guest", 2): (296, 246)}
+STATIC_FLOWS = ("collect", "signedin")           # numbered badges drawn on the static image
+RING = ("collect", 0, "collector")               # pulse the timer pill on this step
+TAG_LEFT_X = 1300                               # packet tags flip left beyond this x
+CAP_WIDTH = 1150                                # caption wrap width in the self-running SVG
+NOTES = [("All outbound traffic from both apps leaves through this subnet", 744, 434, "middle", 500),
+         ("internet egress is platform-managed here · a NAT gateway gives a fixed IP", 744, 450, "middle", 500)]
+LEGEND = dict(box=(1236, 548, 268, 252),
+              cats=[("public", "HTTPS to a public endpoint"), ("private", "private: VNet → private endpoint"),
+                    ("identity", "identity: tokens, signing keys"), ("telemetry", "telemetry"),
+                    ("ops", "deployment and operations"), ("link", "private DNS zone link")],
+              lock="public network access disabled")
+BULLETS = [dict(box=(16, 696, 248, 104), title="Security by design",
+                items=["No secrets in the page or the repo", "Managed identities for ARM, Redis, storage",
+                       "Redis and storage: no public access, no keys", "API CORS: ibranibeny.github.io only"])]
+WIDGET = dict(
+    title="Architecture",
+    intro="What runs where and how the traffic flows. Pick a flow and press play: packets travel hop by hop, and each step names the setting behind it with its Microsoft Learn source.",
+    fine='Also as images: <a href="assets/img/architecture.svg" target="_blank" rel="noopener">static diagram</a> · <a href="assets/img/architecture-animated.svg" target="_blank" rel="noopener">self-running animation</a> (the one in the README).',
+    idle_name="Four flows", idle_tag="scheduled collection · guest read · signed-in read · deploy & publish",
+    aria="Architecture diagram. Space plays or pauses the traffic animation, the arrow keys step through it, F opens full screen.",
+    storage_key="asa.archPlay")
+
 # hop: (segment, direction 1 = along the arrow / -1 = back, packet tag, burst)
 FLOWS = [
     dict(id="collect", name="Scheduled collection", short="Collect", tagline="every 6 hours, Azure CLI in Azure Functions", steps=[

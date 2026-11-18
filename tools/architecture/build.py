@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Builds every architecture artifact from model.py (run: python3 tools/architecture/build.py):
-  docs/index.html            inline SVG for the dashboard (between <!-- arch:svg --> markers)
-  docs/assets/js/arch-flows.js  flow data for the hop-by-hop animation
-  docs/assets/css/app.css    diagram styles + light/dark palette (between /* arch:css */ markers)
-  docs/assets/img/architecture.svg                 static diagram (light)
-  docs/assets/img/architecture-animated.svg        self-running animation for the README (light)
-  docs/assets/img/architecture-animated-dark.svg   same, dark
+"""Builds every diagram artifact from the models (run: python3 tools/architecture/build.py).
+
+model.py (solution architecture):
+  docs/index.html                 interactive widget on the dashboard (between <!-- arch:widget --> markers)
+  docs/assets/js/arch-flows.js    flow data for the hop-by-hop animation
+  docs/assets/img/architecture.svg, architecture-animated.svg, architecture-animated-dark.svg
+storage_model.py (why the Functions apps need a storage account):
+  docs/deploy.html                interactive widget in the deployment guide (between <!-- arch:widget --> markers)
+  docs/assets/js/storage-flows.js flow data
+  docs/assets/img/storage-account.svg
+Shared: docs/assets/css/app.css   diagram styles + light/dark palette (between /* arch:css */ markers)
 """
 import base64, html, json, math, os, re, sys
 try:
@@ -14,7 +18,19 @@ except ImportError:
     ImageFont = None
 
 sys.path.insert(0, os.path.dirname(__file__))
-from model import W, H, ZONES, NODES, SEGS, FLOWS, FLOW_ORDER, SRC
+import model as arch_model
+import storage_model
+
+D = None
+W = H = ZONES = NODES = SEGS = FLOWS = FLOW_ORDER = SRC = FLOWCOL = BADGES = None
+
+def use(mod):
+    """Select the diagram every function below works on."""
+    global D, W, H, ZONES, NODES, SEGS, FLOWS, FLOW_ORDER, SRC, FLOWCOL, BADGES
+    D = mod
+    W, H, ZONES, NODES, SEGS, FLOWS, FLOW_ORDER, SRC = mod.W, mod.H, mod.ZONES, mod.NODES, mod.SEGS, mod.FLOWS, mod.FLOW_ORDER, mod.SRC
+    FLOWCOL = mod.FLOWCOL
+    BADGES = badge_positions()
 
 REPO = os.environ.get("ASA_REPO") or os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 ICONS = REPO + "/docs/assets/icons/"
@@ -56,6 +72,7 @@ LIGHT = {
     "timer-f": "#fff6e5", "timer-s": "#e8a33c", "timer-t": "#7a4b00", "lock": "#c4314b",
     "e-pub": "#6f7f90", "e-pri": "#0f6cbd", "e-id": "#7a5bd0", "e-tel": "#9a6fb0", "e-ops": "#a5761f", "e-link": "#7f8ea0",
     "f-collect": "#e07b00", "f-guest": "#0e9384", "f-signedin": "#2f6fe0", "f-deploy": "#b4389a",
+    "zst-f": "#f1faf8", "zst-s": "#2a9d8f", "zst-t": "#14665c",
 }
 DARK = {
     "bg": "#0f141a", "text": "#e8eef4", "muted": "#9aabbc", "card": "#161d25", "card-s": "#334252", "halo": "#121a22",
@@ -65,8 +82,8 @@ DARK = {
     "timer-f": "#2a2010", "timer-s": "#c48a2c", "timer-t": "#f5c46b", "lock": "#ef6f86",
     "e-pub": "#8d9aab", "e-pri": "#4f9fe8", "e-id": "#a58cf0", "e-tel": "#c39bd6", "e-ops": "#d1a050", "e-link": "#8d9aab",
     "f-collect": "#f5a524", "f-guest": "#2cc3b0", "f-signedin": "#6b9bff", "f-deploy": "#e070c4",
+    "zst-f": "#0f2422", "zst-s": "#2fae9f", "zst-t": "#7fdccf",
 }
-FLOWCOL = {"collect": "f-collect", "guest": "f-guest", "signedin": "f-signedin", "deploy": "f-deploy"}
 
 CSS = """
 .arch-svg{font-family:@FONT@}
@@ -78,6 +95,11 @@ CSS = """
 .z-subnet .az-zr{fill:@zsn-f@;stroke:@zsn-s@;stroke-dasharray:4 3}
 .z-ops .az-zr{fill:@zop-f@;stroke:@zop-s@}
 .z-box .az-zr{fill:@card@;stroke:@card-s@}
+.z-store .az-zr{fill:@zst-f@;stroke:@zst-s@;stroke-width:1.6}
+.z-svc .az-zr{fill:@card@;stroke:@zst-s@;stroke-dasharray:4 3}
+.z-svc .az-zt{font-size:11.5px;fill:@zst-t@}
+.az-rt{font-size:11.5px;font-weight:600;fill:@text@;font-family:@MONO@}
+.az-rp{font-size:11.5px}
 .az-zt{font-size:13px;font-weight:600;fill:@text@}
 .az-zk{font-size:10.5px;fill:@muted@}
 .z-subnet .az-zt{font-size:11.5px;fill:@zsn-t@}
@@ -195,20 +217,24 @@ class Ctx:
 # ---------------------------------------------------------------- pieces
 def zone_svg(c, z):
     x, y, w, h = z["box"]
-    o = [f'<g class="az-zone z-{z["kind"]}"><rect class="az-zr" x="{x}" y="{y}" width="{w}" height="{h}" rx="{14 if z["kind"] in ("azure", "web", "identity", "ops") else 10}"/>']
+    o = [f'<g class="az-zone z-{z["kind"]}"><rect class="az-zr" x="{x}" y="{y}" width="{w}" height="{h}" rx="{14 if z["kind"] in ("azure", "web", "identity", "ops", "store") else 10}"/>']
     ix = z.get("tx", x + 12)
     tx = ix + 2
-    ty = y + 22 if z["kind"] != "subnet" else y + 19
+    small = z["kind"] in ("subnet", "svc")
+    ty = y + 22 if not small else y + 19
     if z.get("icon"):
-        s = 18 if z["kind"] != "subnet" else 15
+        s = 18 if not small else 15
         o.append(c.icon(z["icon"], ix, ty - (14 if s == 18 else 12), s))
         tx = ix + s + 6
     if z.get("kicker"):
         o.append(f'<text class="az-zk" x="{tx}" y="{ty - 3}">{esc(z["kicker"])}</text>')
         ty += 14
-    size = 13 if z["kind"] != "subnet" else 11.5
-    fit(z["title"], size, w - (tx - x) - 12, "zone " + z["id"], "bold")
-    o.append(f'<text class="az-zt" x="{tx}" y="{ty}">{esc(z["title"])}</text></g>')
+    size = 13 if not small else 11.5
+    fit(z["title"], size, z.get("room", w - (tx - x) - 12 - (24 if z.get("lock") else 0)), "zone " + z["id"], "bold")
+    o.append(f'<text class="az-zt" x="{tx}" y="{ty}">{esc(z["title"])}</text>')
+    if z.get("lock"):
+        o.append(f'<g class="az-lockg"><title>Public network access disabled</title><path class="az-lock" d="{lock_path(x + w - 24, y + 10)}"/></g>')
+    o.append('</g>')
     return "".join(o)
 
 def node_svg(c, nid):
@@ -217,6 +243,16 @@ def node_svg(c, nid):
     port = n.get("kind") == "port"
     o = [f'<g class="az-node{" az-port" if port else ""}" data-node="{nid}" id="{c.pre}node-{nid}">',
          f'<rect class="az-card" x="{x}" y="{y}" width="{w}" height="{h}" rx="{8 if port else 10}"/>']
+    if n.get("kind") == "row":
+        o[0] = o[0].replace('class="az-node"', 'class="az-node az-row"')
+        o.append(c.icon(n["icon"], x + 10, y + (h - 24) / 2, 24))
+        fit(n["title"], 11.5, w - 52, "row " + nid, weight="bold" if n.get("plain") else "normal", mono=not n.get("plain"))
+        o.append(f'<text class="{"az-t az-rp" if n.get("plain") else "az-rt"}" x="{x + 42}" y="{y + 19}">{esc(n["title"])}</text>')
+        if n.get("sub"):
+            fit(n["sub"], 11, w - 52, "row " + nid)
+            o.append(f'<text class="az-s" x="{x + 42}" y="{y + 35}">{esc(n["sub"])}</text>')
+        o.append("</g>")
+        return "".join(o)
     if port:
         o.append(c.icon(n["icon"], x + 10, y + 9, 22))
         fit(n["title"], 11, w - 48, "node " + nid, "bold")
@@ -243,7 +279,7 @@ def node_svg(c, nid):
         o.append(f'<g class="az-pill"><rect x="{px:.1f}" y="{y + 12}" width="{pw:.1f}" height="15" rx="7.5"/><text x="{px + pw / 2:.1f}" y="{y + 22.5}" text-anchor="middle">{esc(n["pill"])}</text></g>')
     if n.get("lock"):
         lx, ly = x + w - 20, y + 9
-        o.append(f'<g class="az-lockg"><title>Public network access disabled</title><path class="az-lock" d="M{lx + 2} {ly + 6}h8a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1zm1.6 0v-2.2a2.4 2.4 0 0 1 4.8 0v2.2h-1.4v-2.2a1 1 0 0 0-2 0v2.2z"/></g>')
+        o.append(f'<g class="az-lockg"><title>Public network access disabled</title><path class="az-lock" d="{lock_path(lx, ly)}"/></g>')
     if n.get("timer"):
         t = n["timer"]
         pw = tw(t, 10, mono=True) + 34
@@ -287,44 +323,51 @@ def markers(c, flows_too=False, pal=None):
     o.append("</defs>")
     return "".join(o)
 
+def lock_path(lx, ly):
+    return (f'M{lx + 2} {ly + 6}h8a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1zm1.6 0v-2.2a2.4 2.4 0 0 1 '
+            f'4.8 0v2.2h-1.4v-2.2a1 1 0 0 0-2 0v2.2z')
+
 def extras_svg(c):
     o = []
-    # egress note in snet-functions
-    o.append('<text class="az-note" x="744" y="434" text-anchor="middle">All outbound traffic from both apps leaves through this subnet</text>')
-    o.append('<text class="az-note" x="744" y="450" text-anchor="middle">internet egress is platform-managed here · a NAT gateway gives a fixed IP</text>')
-    fit("All outbound traffic from both apps leaves through this subnet", 10.5, 500, "note")
-    fit("internet egress is platform-managed here · a NAT gateway gives a fixed IP", 10.5, 500, "note")
-    # legend
-    x, y, w, h = 1236, 548, 268, 252
-    o.append(f'<g class="az-zone z-box"><rect class="az-zr" x="{x}" y="{y}" width="{w}" height="{h}" rx="12"/></g>')
-    o.append(f'<text class="az-lgh" x="{x + 14}" y="{y + 22}">Legend</text>')
-    yy = y + 42
-    for f in FLOWS:
-        o.append(f'<circle cx="{x + 22}" cy="{yy - 4}" r="5" class="lg-dot lg-{f["id"]}"/><text class="az-lg" x="{x + 36}" y="{yy}">{esc(f["name"])}</text>')
-        yy += 17
-    yy += 4
-    for cat, label in [("public", "HTTPS to a public endpoint"), ("private", "private: VNet → private endpoint"),
-                       ("identity", "identity: tokens, signing keys"), ("telemetry", "telemetry"),
-                       ("ops", "deployment and operations"), ("link", "private DNS zone link")]:
-        o.append(f'<g class="az-seg-g cat-{cat}"><path class="az-seg" d="M{x + 14} {yy - 4}h34"{' style="marker-end:none"' if cat == "link" else ""}/></g><text class="az-lg" x="{x + 58}" y="{yy}">{esc(label)}</text>')
-        fit(label, 11, w - 66, "legend")
-        yy += 18
-    lx, ly = x + 24, yy - 14
-    o.append(f'<path class="az-lock" d="M{lx + 2} {ly + 6}h8a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1zm1.6 0v-2.2a2.4 2.4 0 0 1 4.8 0v2.2h-1.4v-2.2a1 1 0 0 0-2 0v2.2z"/><text class="az-lg" x="{x + 58}" y="{yy}">public network access disabled</text>')
-    # security box
-    x, y, w, h = 16, 696, 248, 104
-    o.append(f'<g class="az-zone z-box"><rect class="az-zr" x="{x}" y="{y}" width="{w}" height="{h}" rx="12"/></g>')
-    o.append(f'<text class="az-lgh" x="{x + 14}" y="{y + 22}">Security by design</text>')
-    for i, t in enumerate(["No secrets in the page or the repo", "Managed identities for ARM, Redis, storage",
-                           "Redis and storage: no public access, no keys", "API CORS: ibranibeny.github.io only"]):
-        fit(t, 10.5, w - 34, "security")
-        o.append(f'<circle cx="{x + 18}" cy="{y + 39 + i * 17}" r="2.2" class="lg-bullet"/><text class="az-note" x="{x + 26}" y="{y + 43 + i * 17}">{esc(t)}</text>')
+    for text, x, y, anchor, room in getattr(D, "NOTES", []):
+        o.append(f'<text class="az-note" x="{x}" y="{y}" text-anchor="{anchor}">{esc(text)}</text>')
+        fit(text, 10.5, room, "note")
+    lg = getattr(D, "LEGEND", None)
+    if lg:
+        x, y, w, h = lg["box"]
+        o.append(f'<g class="az-zone z-box"><rect class="az-zr" x="{x}" y="{y}" width="{w}" height="{h}" rx="12"/></g>')
+        o.append(f'<text class="az-lgh" x="{x + 14}" y="{y + 22}">Legend</text>')
+        yy = y + 42
+        for f in FLOWS:
+            o.append(f'<circle cx="{x + 22}" cy="{yy - 4}" r="5" class="lg-dot lg-{f["id"]}"/><text class="az-lg" x="{x + 36}" y="{yy}">{esc(f["name"])}</text>')
+            fit(f["name"], 11, w - 44, "legend")
+            yy += 17
+        yy += 4
+        for cat, label in lg["cats"]:
+            o.append(f'<g class="az-seg-g cat-{cat}"><path class="az-seg" d="M{x + 14} {yy - 4}h34"{' style="marker-end:none"' if cat == "link" else ""}/></g><text class="az-lg" x="{x + 58}" y="{yy}">{esc(label)}</text>')
+            fit(label, 11, w - 66, "legend")
+            yy += 18
+        if lg.get("lock"):
+            lx, ly = x + 24, yy - 14
+            o.append(f'<path class="az-lock" d="{lock_path(lx, ly)}"/><text class="az-lg" x="{x + 58}" y="{yy}">{esc(lg["lock"])}</text>')
+            yy += 18
+        if yy - 14 > y + h:
+            WARN.append(f"legend overflows its box by {yy - 14 - y - h:.0f}px")
+    for b in getattr(D, "BULLETS", []):
+        x, y, w, h = b["box"]
+        o.append(f'<g class="az-zone z-box"><rect class="az-zr" x="{x}" y="{y}" width="{w}" height="{h}" rx="12"/></g>')
+        o.append(f'<text class="az-lgh" x="{x + 14}" y="{y + 22}">{esc(b["title"])}</text>')
+        for i, t in enumerate(b["items"]):
+            fit(t, 10.5, w - 34, "bullets")
+            o.append(f'<circle cx="{x + 18}" cy="{y + 39 + i * 17}" r="2.2" class="lg-bullet"/><text class="az-note" x="{x + 26}" y="{y + 43 + i * 17}">{esc(t)}</text>')
+        if 43 + (len(b["items"]) - 1) * 17 + 8 > h:
+            WARN.append(f"bullet box '{b['title']}' overflows")
     return "".join(o)
 
 # ---------------------------------------------------------------- badges
 def badge_positions():
     pos = {}
-    manual = {("collect", 0): (950, 247), ("guest", 2): (296, 246)}
+    manual = getattr(D, "BADGE_MANUAL", {})
     for f in FLOWS:
         placed = []
         for i, st in enumerate(f["steps"]):
@@ -340,7 +383,6 @@ def badge_positions():
             placed.append(p)
             pos[(f["id"], i)] = (round(p[0], 1), round(p[1], 1))
     return pos
-BADGES = badge_positions()
 
 def badge_svg(fid, i, color):
     x, y = BADGES[(fid, i)]
@@ -381,7 +423,7 @@ def wrap(text, size, width):
 def tag_left(h):
     """Tags of packets that travel near the right edge are drawn to the left of the dot."""
     xs = [p[0] for p in SEGS[h["seg"]]["pts"]]
-    return max(xs) > 1300
+    return max(xs) > getattr(D, "TAG_LEFT_X", W - 220)
 
 def smil(c, pal, speed):
     flows, total = timeline(speed)
@@ -406,11 +448,12 @@ def smil(c, pal, speed):
             nodes = set(st.get("focus", []))
             for sid in segs:
                 nodes.update(n for n in SEGS[sid]["ends"] if n in NODES)
-            for nid in sorted(nodes):
+            for nid in sorted(n for n in nodes if n in NODES):
                 x, y, w, h = nbox(nid)
                 nodes_hl.append(f'<rect x="{x - 3}" y="{y - 3}" width="{w + 6}" height="{h + 6}" rx="12" fill="none" stroke="{col}" stroke-width="2.6" opacity="0"><set attributeName="opacity" to="1" begin="{T(s["start"])}" dur="{dur:.2f}s"/></rect>')
-            if f["id"] == "collect" and s["i"] == 0:
-                cx, cy = NODES["collector"]["box"][0] + 20, NODES["collector"]["box"][1]
+            ring = getattr(D, "RING", None)
+            if ring and f["id"] == ring[0] and s["i"] == ring[1]:
+                cx, cy = NODES[ring[2]]["box"][0] + 20, NODES[ring[2]]["box"][1]
                 for k in range(3):
                     b = s["start"] + k * 0.7 / speed
                     nodes_hl.append(f'<circle cx="{cx}" cy="{cy}" r="10" fill="none" stroke="{col}" stroke-width="2" opacity="0"><animate attributeName="r" values="10;30" begin="{T(b)}" dur="{1.2 / speed:.2f}s"/><animate attributeName="opacity" values="0.9;0" begin="{T(b)}" dur="{1.2 / speed:.2f}s"/></circle>')
@@ -428,7 +471,7 @@ def smil(c, pal, speed):
                               f'<animateMotion begin="{T(b)}" dur="{h["dur"]:.2f}s" fill="freeze" calcMode="linear" keyPoints="{kp}" keyTimes="0;1"><mpath xlink:href="#seg-{h["seg"]}"/></animateMotion>'
                               f'<animate attributeName="opacity" begin="{T(b)}" dur="{h["dur"]:.2f}s" values="0;1;1;0" keyTimes="0;0.1;0.9;1" fill="freeze"/></g>')
             # caption
-            lines = wrap(st["text"], 12.5, 1150)
+            lines = wrap(st["text"], 12.5, getattr(D, "CAP_WIDTH", W - 370))
             if len(lines) > 2:
                 WARN.append(f"caption {f['id']}#{s['i'] + 1} wraps to {len(lines)} lines")
             chipw = tw(f["name"], 11.5, "bold") + 24
@@ -455,7 +498,7 @@ def svg(mode, pal=None, theme="light", preview=False):
     body.append(f'<g id="{c.pre}nodes">' + "".join(node_svg(c, n) for n in NODES) + "</g>")
     caps, total = "", 0
     if mode == "static":
-        for fid in ("collect", "signedin"):
+        for fid in getattr(D, "STATIC_FLOWS", ()):
             f = next(x for x in FLOWS if x["id"] == fid)
             body.append("".join(badge_svg(fid, i, pal[FLOWCOL[fid]]) for i in range(len(f["steps"]))))
     if anim:
@@ -464,12 +507,10 @@ def svg(mode, pal=None, theme="light", preview=False):
         body.append(f'<rect class="az-cap" x="16" y="{H + 2}" width="{W - 32}" height="{CAP - 10}" rx="12"/>' + caps)
     if c.inline:
         body.append('<g id="arch-badges"></g><g id="arch-pkts"></g>')
-    title = "Azure Service Availability architecture"
-    desc = ("GitHub Pages dashboard in the browser; optional Microsoft Entra ID sign-in; API and collector Function apps "
-            "(Flex Consumption, Indonesia Central) with user-assigned managed identities; VNet integration and private endpoints "
-            "to Azure Managed Redis and Storage; the collector calls Azure Resource Manager and the Azure Retail Prices API every 6 hours.")
+    title, desc = D.TITLE, D.DESC
+    vt = getattr(D, "VB_TOP", 0)
     if c.inline:
-        head = (f'<svg class="arch-svg" id="archSvg" viewBox="0 0 {W} {height}" role="img" aria-labelledby="arch-title arch-desc">'
+        head = (f'<svg class="arch-svg" id="archSvg" viewBox="0 {vt} {W} {height - vt}" role="img" aria-labelledby="arch-title arch-desc">'
                 f'<title id="arch-title">{title}</title><desc id="arch-desc">{esc(desc)}</desc>')
         return head + "".join(body) + "</svg>"
     style = css("standalone", pal)
@@ -477,9 +518,9 @@ def svg(mode, pal=None, theme="light", preview=False):
     if preview:
         style = style.replace(FONT, '"Liberation Sans",Arial,sans-serif').replace(MONO, '"Liberation Mono",monospace')
     syms = "".join(f'<symbol id="i-{n}" viewBox="0 0 64 64"><image width="64" height="64" xlink:href="{icon_uri(n)}"/></symbol>' for n in sorted(c.used))
-    head = (f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" class="arch-svg" viewBox="0 0 {W} {height}" '
-            f'width="{W}" height="{height}" role="img" aria-labelledby="t d"><title id="t">{title}</title><desc id="d">{esc(desc)}</desc>'
-            f'<style>{style}{lg}</style><defs>{syms}</defs><rect width="{W}" height="{height}" fill="{pal["bg"]}"/>')
+    head = (f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" class="arch-svg" viewBox="0 {vt} {W} {height - vt}" '
+            f'width="{W}" height="{height - vt}" role="img" aria-labelledby="t d"><title id="t">{title}</title><desc id="d">{esc(desc)}</desc>'
+            f'<style>{style}{lg}</style><defs>{syms}</defs><rect y="{vt}" width="{W}" height="{height - vt}" fill="{pal["bg"]}"/>')
     return head + "".join(body) + "</svg>", total
 
 # ---------------------------------------------------------------- outputs
@@ -498,14 +539,52 @@ def flows_js():
           f"export const TOUR = {json.dumps(FLOW_ORDER)};\n"
           f"export const SEGS = {json.dumps(segs, separators=(',', ':'))};\n"
           f"export const TIMING = {json.dumps(dict(pxPerS=PX_PER_S, minHop=MIN_HOP, burstGap=BURST_GAP, dwell=DWELL, emptyDwell=EMPTY_DWELL, flowGap=FLOW_GAP))};\n"
+          f"export const RING = {json.dumps(list(D.RING[:2]) if getattr(D, 'RING', None) else None)};\n"
           f"export const FLOWS = {json.dumps(flows, ensure_ascii=False, indent=1)};\n")
     return js
 
-def palette_css():
+def palette_css(models):
     lv = ";".join(f"--az-{k}:{v}" for k, v in LIGHT.items())
     dv = ";".join(f"--az-{k}:{v}" for k, v in DARK.items())
+    legend = {}
+    for m in models:
+        legend.update({f: m.FLOWCOL[f] for f in m.FLOW_ORDER})
     return (f":root{{{lv}}}\n:root[data-theme=\"dark\"]{{{dv}}}\n@media (prefers-color-scheme: dark){{:root[data-theme=\"auto\"]{{{dv}}}}}\n"
-            + css("inline") + "".join(f".lg-{f}{{fill:var(--az-{FLOWCOL[f]})}}" for f in FLOW_ORDER) + ".lg-bullet{fill:var(--az-muted)}\n")
+            + css("inline") + "".join(f".lg-{f}{{fill:var(--az-{t})}}" for f, t in legend.items()) + ".lg-bullet{fill:var(--az-muted)}\n")
+
+def widget_html():
+    """Controls, inline SVG, caption and step list for the current diagram (one widget per page)."""
+    w = D.WIDGET
+    flows = "".join(f'\n            <button type="button" data-flow="{f["id"]}" aria-pressed="false" style="--c:var(--az-{FLOWCOL[f["id"]]})"><span class="dot"></span>{esc(f["name"])}</button>' for f in FLOWS)
+    return f'''
+      <{w.get("h", "h2")} class="arch-h">{esc(w["title"])}</{w.get("h", "h2")}>
+      <p class="muted small arch-intro">{esc(w["intro"])}</p>
+      <div class="arch-wrap" id="arch">
+        <div class="arch-bar">
+          <div class="arch-flows" role="group" aria-label="Choose a flow">
+            <button type="button" data-flow="tour" aria-pressed="true" style="--c:var(--accent)"><span class="dot"></span>All flows</button>{flows}
+          </div>
+          <div class="arch-ctl">
+            <button type="button" class="ghost" id="archPrev" aria-label="Previous step" title="Previous step (←)">&#9664;</button>
+            <button type="button" class="primary" id="archPlay">&#9654; Play traffic</button>
+            <button type="button" class="ghost" id="archNext" aria-label="Next step" title="Next step (→)">&#9654;</button>
+            <button type="button" class="ghost" id="archFull" aria-label="Full screen" title="Full screen (F)">&#x26F6;</button>
+            <label class="small">Speed <select id="archSpeed" aria-label="Animation speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
+          </div>
+        </div>
+        <div class="arch-canvas" tabindex="0" aria-label="{esc(w["aria"])}" data-idle-name="{esc(w["idle_name"])}" data-idle-tag="{esc(w["idle_tag"])}" data-storage-key="{esc(w["storage_key"])}">
+          {svg("inline")}
+          <button type="button" class="arch-overlay" id="archOverlay">&#9654; Play the traffic animation</button>
+        </div>
+        <div class="arch-caption" id="archCaption" aria-live="polite">
+          <div class="arch-cap-head"><span class="arch-flowname"><span class="dot"></span><b id="archFlowName">{esc(w["idle_name"])}</b></span><span class="muted" id="archFlowTag"></span><span class="arch-stepno" id="archStepNo"></span></div>
+          <p class="arch-cap-body"><b id="archStepTitle"></b> <span id="archStepText"></span> <a id="archStepSrc" target="_blank" rel="noopener" hidden></a></p>
+          <div class="arch-chips" id="archChips" role="group" aria-label="Steps"></div>
+        </div>
+        <details class="arch-all"><summary>All flows step by step, with sources</summary><div id="archAll"></div></details>
+        <p class="fine">{w["fine"]}</p>
+      </div>
+      '''
 
 def replace_between(path, start, end, content):
     s = open(path, encoding="utf-8").read()
@@ -514,22 +593,39 @@ def replace_between(path, start, end, content):
         raise SystemExit(f"markers missing in {path}")
     open(path, "w", encoding="utf-8").write(s[:i + len(start)] + content + s[j:])
 
+def write(rel, data):
+    path = os.path.join(REPO, rel)
+    open(path, "w", encoding="utf-8").write(data)
+    return len(data)
+
 if __name__ == "__main__":
-    out = {}
-    s, _ = svg("static", LIGHT); out["architecture.svg"] = s
-    s, total = svg("anim", LIGHT); out["architecture-animated.svg"] = s
-    s, _ = svg("anim", DARK); out["architecture-animated-dark.svg"] = s
-    for name, data in out.items():
-        open(REPO + "/docs/assets/img/" + name, "w", encoding="utf-8").write(data)
-    replace_between(REPO + "/docs/index.html", "<!-- arch:svg -->", "<!-- /arch:svg -->", svg("inline"))
-    open(REPO + "/docs/assets/js/arch-flows.js", "w", encoding="utf-8").write(flows_js())
-    replace_between(REPO + "/docs/assets/css/app.css", "/* arch:css */", "/* /arch:css */", "\n" + palette_css())
-    if "--preview" in sys.argv:                       # Liberation-font copies for a local PNG check
-        pdir = sys.argv[sys.argv.index("--preview") + 1]
+    sizes, models = {}, [arch_model, storage_model]
+    pdir = sys.argv[sys.argv.index("--preview") + 1] if "--preview" in sys.argv else None
+    if pdir:
         os.makedirs(pdir, exist_ok=True)
+
+    # ---- solution architecture (dashboard + README) ----
+    use(arch_model)
+    s, _ = svg("static", LIGHT); sizes["architecture.svg"] = write("docs/assets/img/architecture.svg", s)
+    s, total = svg("anim", LIGHT); sizes["architecture-animated.svg"] = write("docs/assets/img/architecture-animated.svg", s)
+    s, _ = svg("anim", DARK); sizes["architecture-animated-dark.svg"] = write("docs/assets/img/architecture-animated-dark.svg", s)
+    replace_between(REPO + "/docs/index.html", "<!-- arch:widget -->", "<!-- /arch:widget -->", widget_html())
+    write("docs/assets/js/arch-flows.js", flows_js())
+    if pdir:
         for name, pal in (("static", LIGHT), ("static-dark", DARK)):
-            s, _ = svg("static", pal, preview=True)
-            open(os.path.join(pdir, name + ".svg"), "w", encoding="utf-8").write(s)
-    print(json.dumps({k: len(v) for k, v in out.items()}), f"README loop {total:.1f}s")
+            s, _ = svg("static", pal, preview=True); open(os.path.join(pdir, name + ".svg"), "w", encoding="utf-8").write(s)
+
+    # ---- storage account (deployment guide) ----
+    use(storage_model)
+    s, _ = svg("static", LIGHT); sizes["storage-account.svg"] = write("docs/assets/img/storage-account.svg", s)
+    if os.path.exists(os.path.join(REPO, "docs/deploy.html")):
+        replace_between(REPO + "/docs/deploy.html", "<!-- arch:widget -->", "<!-- /arch:widget -->", widget_html())
+    write("docs/assets/js/storage-flows.js", flows_js())
+    if pdir:
+        for name, pal in (("storage", LIGHT), ("storage-dark", DARK)):
+            s, _ = svg("static", pal, preview=True); open(os.path.join(pdir, name + ".svg"), "w", encoding="utf-8").write(s)
+
+    replace_between(REPO + "/docs/assets/css/app.css", "/* arch:css */", "/* /arch:css */", "\n" + palette_css(models))
+    print(json.dumps(sizes), f"README loop {total:.1f}s")
     for w in WARN:
         print("WARN", w)
