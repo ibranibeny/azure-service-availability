@@ -8,9 +8,12 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "backend", "api"))
+# Same auth settings as test_auth.py: the auth module reads them once at import, whichever test loads it first.
 os.environ.update({"GUEST_READ_ACCESS": "true", "GUEST_RATE_LIMIT_PER_MINUTE": "3",
                    "AUTH_TENANT_ID": "11111111-2222-3333-4444-555555555555",
-                   "AUTH_API_CLIENT_ID": "aaaaaaaa-0000-0000-0000-000000000001"})
+                   "AUTH_API_CLIENT_ID": "aaaaaaaa-0000-0000-0000-000000000001",
+                   "AUTH_ALLOWED_CLIENT_IDS": "bbbbbbbb-0000-0000-0000-000000000002",
+                   "AUTH_ALLOWED_DOMAINS": "contoso.day", "AUTH_ALLOW_GUESTS": "false"})
 
 
 class _Resp:
