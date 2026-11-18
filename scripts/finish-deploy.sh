@@ -8,18 +8,23 @@ set -euo pipefail
 export RG="${RG:-rg-azure-service-availability}"
 export ALLOWED_DOMAINS="${ALLOWED_DOMAINS:-contoso.day}"
 export SCHEDULE="${SCHEDULE:-0 0 */6 * * *}"
+export GUEST_ACCESS="${GUEST_ACCESS:-true}"
 API_NAME="${API_APP_NAME:-Azure Service Availability API}"
 SPA_NAME="${SPA_APP_NAME:-Azure Service Availability Dashboard}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/.deploy"; mkdir -p "$OUT"
 step() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 
-step "Build both Function apps (in the background)"
-if [ "${SKIP_BUILD:-false}" = "true" ] && [ -s "$OUT/collector.zip" ] && [ -s "$OUT/api.zip" ]; then
-  echo "Reusing $OUT/collector.zip and $OUT/api.zip"; B1=""; B2=""
+APPS="${APPS:-collector api}"   # e.g. APPS=api to update only the API app
+has() { [[ " $APPS " == *" $1 "* ]]; }
+step "Build Function apps in the background: $APPS"
+B1=""; B2=""
+if [ "${SKIP_BUILD:-false}" != "true" ]; then
+  rm -f "$OUT"/build-*.log
+  has collector && { bash "$ROOT/scripts/build.sh" collector "$OUT/collector.zip" > "$OUT/build-collector.log" 2>&1 & B1=$!; }
+  has api && { bash "$ROOT/scripts/build.sh" api "$OUT/api.zip" > "$OUT/build-api.log" 2>&1 & B2=$!; }
 else
-  bash "$ROOT/scripts/build.sh" collector "$OUT/collector.zip" > "$OUT/build-collector.log" 2>&1 & B1=$!
-  bash "$ROOT/scripts/build.sh" api "$OUT/api.zip" > "$OUT/build-api.log" 2>&1 & B2=$!
+  echo "Reusing the zips in $OUT"
 fi
 
 step "Infrastructure deployment in $RG"
@@ -60,11 +65,13 @@ deploy_zip() {
   done
   return 1
 }
-deploy_zip "$COLLECTOR" "$OUT/collector.zip"
-deploy_zip "$API" "$OUT/api.zip"
+if has collector; then deploy_zip "$COLLECTOR" "$OUT/collector.zip"; fi
+if has api; then deploy_zip "$API" "$OUT/api.zip"; fi
 
-step "First collection (the timer then runs it automatically: $SCHEDULE UTC)"
-COLLECTOR_APP="$COLLECTOR" bash "$ROOT/scripts/run-collector.sh"
+if has collector; then
+  step "First collection (the timer then runs it automatically: $SCHEDULE UTC)"
+  COLLECTOR_APP="$COLLECTOR" bash "$ROOT/scripts/run-collector.sh"
+fi
 
 step "Dashboard settings for docs/config.js"
 cat > "$OUT/config.js" <<JS
@@ -73,7 +80,8 @@ window.ASA_CONFIG = {
   clientId: "$SPA_APP_ID",
   apiScope: "api://$API_APP_ID/Availability.Read",
   apiBase: "$API_BASE",
-  domainHint: "${ALLOWED_DOMAINS%%,*}"
+  domainHint: "${ALLOWED_DOMAINS%%,*}",
+  guestAccess: $GUEST_ACCESS
 };
 JS
 cat "$OUT/config.js"

@@ -47,7 +47,11 @@ cd azure-service-availability
 bash scripts/deploy.sh          # Indonesia Central by default
 ```
 
-The script registers resource providers, creates the two app registrations (API + dashboard), deploys `infra/main.bicep`, builds both Function apps locally (Python 3.12), deploys them, starts the first collection and prints the values for `docs/config.js`. Settings can be overridden with environment variables: `LOCATION`, `RG`, `PAGES_URL`, `ALLOWED_DOMAINS`, `SCHEDULE`, `REDIS_SKU`, `ENABLE_NAT`.
+The script registers resource providers, creates the two app registrations (API + dashboard), deploys `infra/main.bicep`, builds both Function apps locally (Python 3.12), deploys them, starts the first collection and prints the values for `docs/config.js`. Settings can be overridden with environment variables: `LOCATION`, `RG`, `PAGES_URL`, `ALLOWED_DOMAINS`, `SCHEDULE`, `REDIS_SKU`, `ENABLE_NAT`, `GUEST_ACCESS`. To update only one app, run `APPS=api bash scripts/deploy.sh` (or `APPS=collector`).
+
+### Guest access (read-only, no sign-in)
+
+With `GUEST_ACCESS=true` (the default in `deploy.sh`) visitors can choose **Continue as guest** on the sign-in page, or open the dashboard with `?guest=1`, and browse the same snapshot **read-only** without an account. Signed-in `contoso.day` users get the same views; guests don't see the collector's raw error text. The API serves guests only when a request carries no token at all (a bad token is still refused) and limits each address to 120 requests a minute per instance. Turn it off with `GUEST_ACCESS=false bash scripts/deploy.sh` and `guestAccess: false` in `docs/config.js`.
 
 If Cloud Shell disconnects part-way (it times out after 20 idle minutes), open it again, clone the repo and run `bash scripts/finish-deploy.sh`: it waits for the latest infrastructure deployment, then builds and deploys both apps, runs the first collection and prints `docs/config.js`. It is safe to run more than once.
 

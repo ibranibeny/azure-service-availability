@@ -42,6 +42,9 @@ param redisSku string = 'Balanced_B0'
 ])
 param redisHighAvailability string = 'Enabled'
 
+@description('Let visitors read the dashboard data without signing in (read-only guest view, rate-limited per address).')
+param guestReadAccess bool = false
+
 @description('Add a NAT gateway for outbound internet traffic from the Function apps subnet.')
 param enableNatGateway bool = false
 
@@ -635,6 +638,14 @@ resource funcApi 'Microsoft.Web/sites@2024-04-01' = {
         {
           name: 'AUTH_ALLOW_GUESTS'
           value: 'false'
+        }
+        {
+          name: 'GUEST_READ_ACCESS'
+          value: string(guestReadAccess)
+        }
+        {
+          name: 'GUEST_RATE_LIMIT_PER_MINUTE'
+          value: '120'
         }
       ])
     }

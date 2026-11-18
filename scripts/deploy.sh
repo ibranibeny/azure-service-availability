@@ -12,6 +12,7 @@ export ALLOWED_DOMAINS="${ALLOWED_DOMAINS:-contoso.day}"
 export SCHEDULE="${SCHEDULE:-0 0 */6 * * *}"
 export REDIS_SKU="${REDIS_SKU:-Balanced_B0}"
 export ENABLE_NAT="${ENABLE_NAT:-false}"
+export GUEST_ACCESS="${GUEST_ACCESS:-true}"     # read-only guest view without sign-in
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/.deploy"; mkdir -p "$OUT"
 step() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
@@ -38,6 +39,7 @@ az deployment group create -g "$RG" -n "$DEPLOYMENT" -f "$ROOT/infra/main.bicep"
   -p location="$LOCATION" apiClientId="$API_APP_ID" spaClientId="$SPA_APP_ID" \
      allowedUserDomains="$ALLOWED_DOMAINS" allowedOrigins="[\"$PAGES_ORIGIN\"]" \
      collectSchedule="$SCHEDULE" redisSku="$REDIS_SKU" enableNatGateway="$ENABLE_NAT" \
+     guestReadAccess="$GUEST_ACCESS" \
   --no-wait -o none
 
 # Build, deploy code, first collection and dashboard settings
