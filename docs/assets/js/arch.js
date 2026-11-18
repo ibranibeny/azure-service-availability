@@ -98,16 +98,16 @@ export function initArch(root, { motionOn }) {
     if (g) return g;
     g = document.createElementNS(NS, "g");
     g.setAttribute("class", "pkt");
-    const halo = document.createElementNS(NS, "circle"); halo.setAttribute("class", "halo"); halo.setAttribute("r", 11);
-    const dot = document.createElementNS(NS, "circle"); dot.setAttribute("class", "dot"); dot.setAttribute("r", 5.5);
+    const halo = document.createElementNS(NS, "circle"); halo.setAttribute("class", "halo"); halo.setAttribute("r", 14);
+    const dot = document.createElementNS(NS, "circle"); dot.setAttribute("class", "dot"); dot.setAttribute("r", 7);
     g.append(halo, dot);
     pkLayer.append(g);
     if (tag) {
       const tg = document.createElementNS(NS, "g"); tg.setAttribute("class", "tag");
-      const r = document.createElementNS(NS, "rect"); r.setAttribute("height", 17); r.setAttribute("rx", 8.5);
-      const t = document.createElementNS(NS, "text"); t.setAttribute("x", 6); t.setAttribute("y", 12.2); t.textContent = tag;
+      const r = document.createElementNS(NS, "rect"); r.setAttribute("height", 21); r.setAttribute("rx", 10.5);
+      const t = document.createElementNS(NS, "text"); t.setAttribute("x", 8); t.setAttribute("y", 14.8); t.textContent = tag;
       tg.append(r, t); g.append(tg);
-      const w = t.getComputedTextLength() + 12;
+      const w = t.getComputedTextLength() + 16;
       r.setAttribute("width", w.toFixed(1));
       g.dataset.w = w.toFixed(1);
     }
@@ -137,7 +137,7 @@ export function initArch(root, { motionOn }) {
         g.setAttribute("transform", `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})`);
         g.style.opacity = String(Math.max(0, Math.min(1, u / 0.1, (1 - u) / 0.1)));
         const tg = g.querySelector(".tag");
-        if (tg) tg.setAttribute("transform", p.x > 1330 ? `translate(${-9 - Number(g.dataset.w)} -25)` : "translate(9 -25)");
+        if (tg) tg.setAttribute("transform", p.x > 1300 ? `translate(${-12 - Number(g.dataset.w)} -33)` : "translate(12 -33)");
       }
     }
   }
@@ -222,6 +222,9 @@ export function initArch(root, { motionOn }) {
   q("#archOverlay").addEventListener("click", () => setWant(true));
   q("#archPrev").addEventListener("click", () => stepBy(-1));
   q("#archNext").addEventListener("click", () => stepBy(1));
+  const full = () => (document.fullscreenElement ? document.exitFullscreen() : root.requestFullscreen?.())?.catch?.(() => {});
+  const fb = q("#archFull");
+  if (fb && root.requestFullscreen) fb.addEventListener("click", full); else if (fb) fb.hidden = true;
   const sp = q("#archSpeed");
   sp.value = String(S.speed);
   sp.addEventListener("change", () => { S.speed = Number(sp.value) || 1; localStorage.setItem(SPEED_KEY, sp.value); });
@@ -230,6 +233,7 @@ export function initArch(root, { motionOn }) {
     if (e.key === "ArrowRight") { stepBy(1); e.preventDefault(); }
     else if (e.key === "ArrowLeft") { stepBy(-1); e.preventDefault(); }
     else if (e.key === " " && !e.target.closest("button, a, summary")) { setWant(!S.want); e.preventDefault(); }
+    else if ((e.key === "f" || e.key === "F") && root.requestFullscreen) { full(); e.preventDefault(); }
   });
   new IntersectionObserver((es) => { S.visible = es.some((e) => e.isIntersecting); kick(); }, { threshold: 0.1 }).observe(svg);
   document.addEventListener("visibilitychange", kick);

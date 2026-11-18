@@ -12,7 +12,7 @@ The data is collected **on a schedule by Azure Functions running the Azure CLI**
   <img alt="Animated architecture diagram: packets move hop by hop through the scheduled collection, guest read, signed-in read and deploy flows between the browser, GitHub Pages, Microsoft Entra ID, the API and collector Function apps, managed identities, VNet integration, private endpoints, Azure Managed Redis, Storage, Application Insights, Azure Resource Manager and the Azure Retail Prices API." src="docs/assets/img/architecture-animated.svg">
 </picture>
 
-The animation plays the four flows one after another (about a minute per loop) and names each step underneath. For play and pause, step-by-step narration and the source behind every step, open the **[interactive version](https://ibranibeny.github.io/azure-service-availability/#architecture)**. Static image: [architecture.svg](docs/assets/img/architecture.svg).
+The animation plays the four flows one after another (about a minute per loop) and names each step underneath; select it to open it full size. For play and pause, step-by-step narration and the source behind every step, open the **[interactive version](https://ibranibeny.github.io/azure-service-availability/#architecture)**. Static image: [architecture.svg](docs/assets/img/architecture.svg).
 
 | Flow | Hop by hop |
 |---|---|
