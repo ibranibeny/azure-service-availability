@@ -15,7 +15,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/.deploy"; mkdir -p "$OUT"
 step() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 
-APPS="${APPS:-collector api}"   # e.g. APPS=api to update only the API app
+APPS="${APPS:-collector api}"   # APPS=api or APPS=collector updates one app; APPS=none only applies settings
 has() { [[ " $APPS " == *" $1 "* ]]; }
 step "Build Function apps in the background: $APPS"
 B1=""; B2=""

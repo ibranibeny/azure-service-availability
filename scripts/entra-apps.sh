@@ -79,7 +79,7 @@ for i in 1 2 3; do
   if az ad app permission admin-consent --id "$SPA_APP_ID" -o none 2>/dev/null; then
     echo "Admin consent granted for the dashboard."; break
   fi
-  [ "$i" = 3 ] && echo "Admin consent not granted (needs an admin role). Users see a one-time consent prompt."
+  [ "$i" = 3 ] && echo "Admin consent not granted from the script. Users may see a one-time consent prompt; an admin can grant it under App registrations > API permissions."
   sleep 15
 done
 

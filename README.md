@@ -66,9 +66,12 @@ The snapshot (summary, one document per region, VM size index, Managed Redis ind
 
 ## Deploy (Azure Cloud Shell, Bash)
 
+**Step-by-step guide: [ibranibeny.github.io/azure-service-availability/deploy.html](https://ibranibeny.github.io/azure-service-availability/deploy.html)**: prerequisites, settings, what each phase prints, checks, day-to-day commands, troubleshooting, clean-up, and [why the Function apps need a storage account](https://ibranibeny.github.io/azure-service-availability/deploy.html#storage). Type your own GitHub owner, domain and region on that page and every command updates.
+
 ```bash
-git clone https://github.com/ibranibeny/azure-service-availability
+git clone https://github.com/<you>/azure-service-availability
 cd azure-service-availability
+export PAGES_URL=https://<you>.github.io/azure-service-availability/ ALLOWED_DOMAINS=<your domain>
 bash scripts/deploy.sh          # Indonesia Central by default
 ```
 
@@ -81,6 +84,21 @@ With `GUEST_ACCESS=true` (the default in `deploy.sh`) the dashboard is public: a
 If Cloud Shell disconnects part-way (it times out after 20 idle minutes), open it again, clone the repo and run `bash scripts/finish-deploy.sh`: it waits for the latest infrastructure deployment, then builds and deploys both apps, runs the first collection and prints `docs/config.js`. It is safe to run more than once.
 
 Run the collector on demand: `bash scripts/run-collector.sh`.
+
+### Why a storage account?
+
+Azure Functions can't run without one. Every function app needs a general-purpose storage account (blob, queue and table) as its host storage, set in `AzureWebJobsStorage`. The dashboard data lives in Redis; the storage account holds what the Functions platform needs:
+
+| Where | What | Why |
+|---|---|---|
+| Blob `app-package-collector`, `app-package-api` | The deployed packages (52 MB with the Azure CLI, 7 MB) | Flex Consumption runs each app from a package in its own blob container |
+| Blob (Functions host) | Timer lock and schedule status, function keys | One collection at a time across instances, a schedule that survives restarts, the default key store |
+| Table | Diagnostic events | Troubleshooting the Functions host |
+| Queue | Nothing today | Only blob triggers, Durable Functions and retries use it |
+
+It's locked down: identity-based connections with shared keys disabled, public network access disabled, and private endpoints for blob, queue and table. The two light apps share one account; Learn recommends one per app for performance. The animated version, with a Microsoft Learn source for each step, is on the [guide](https://ibranibeny.github.io/azure-service-availability/deploy.html#storage).
+
+![How the Function apps use the storage account](docs/assets/img/storage-account.svg)
 
 ## Repository layout
 

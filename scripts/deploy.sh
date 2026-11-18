@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# One-command deployment from Azure Cloud Shell (Bash):
-#   git clone https://github.com/ibranibeny/azure-service-availability && cd azure-service-availability
-#   bash scripts/deploy.sh
+# One-command deployment from Azure Cloud Shell (Bash). Step-by-step guide:
+#   https://ibranibeny.github.io/azure-service-availability/deploy.html
+#   git clone https://github.com/<you>/azure-service-availability && cd azure-service-availability
+#   PAGES_URL=https://<you>.github.io/azure-service-availability/ ALLOWED_DOMAINS=<your domain> bash scripts/deploy.sh
 set -euo pipefail
 
 export LOCATION="${LOCATION:-indonesiacentral}"
 export RG="${RG:-rg-azure-service-availability}"
-export PAGES_ORIGIN="${PAGES_ORIGIN:-https://ibranibeny.github.io}"
 export PAGES_URL="${PAGES_URL:-https://ibranibeny.github.io/azure-service-availability/}"
+# CORS origin of the dashboard, derived from PAGES_URL unless set (https://<owner>.github.io)
+export PAGES_ORIGIN="${PAGES_ORIGIN:-$(printf '%s' "$PAGES_URL" | sed -E 's#^(https?://[^/]+).*#\1#')}"
 export ALLOWED_DOMAINS="${ALLOWED_DOMAINS:-contoso.day}"
 export SCHEDULE="${SCHEDULE:-0 0 */6 * * *}"
 export REDIS_SKU="${REDIS_SKU:-Balanced_B0}"
