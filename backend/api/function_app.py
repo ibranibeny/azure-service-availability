@@ -1,8 +1,9 @@
 """Availability API Function app (HTTP).
 
 Reads the snapshot that the scheduled collector writes to Azure Managed Redis and
-serves it to the dashboard. Every data route requires a Microsoft Entra ID access
-token for this API (see availability_api/auth.py); CORS is set on the Function app.
+serves it to the dashboard. Data routes accept a Microsoft Entra ID access token for
+this API (see availability_api/auth.py) or, when GUEST_READ_ACCESS=true, no token at
+all for read-only guests (see availability_api/guest.py). CORS is set on the Function app.
 """
 import gzip
 import json
@@ -12,7 +13,7 @@ import re
 
 import azure.functions as func
 
-from availability_api import auth, store
+from availability_api import auth, guest, store
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
@@ -28,14 +29,21 @@ def _json(obj, status=200, extra=None):
 
 def _error(status, code, message):
     extra = {}
+    if status == 429:
+        extra["Retry-After"] = "60"
     if status == 401:
         extra["WWW-Authenticate"] = 'Bearer error="%s"' % code
     return _json({"error": {"code": code, "message": message}}, status, extra)
 
 
 def _guard(req):
+    header = req.headers.get("Authorization")
+    if not header and guest.ENABLED:
+        if not guest.allow(guest.client_ip(req)):
+            return None, _error(429, "rate_limited", "Too many requests from this address. Try again in a minute.")
+        return dict(guest.CLAIMS), None
     try:
-        return auth.validate(req.headers.get("Authorization")), None
+        return auth.validate(header), None
     except auth.AuthError as e:
         if e.status >= 500:
             logging.error("Auth configuration error: %s", e.message)
@@ -54,6 +62,9 @@ def _document(req, name):
     if raw is None:
         return _error(404, "not_collected", "No data yet. The scheduled collector hasn't published this item.")
     headers = {"Cache-Control": "private, max-age=120", "Vary": "Authorization, Accept-Encoding"}
+    if claims.get("guest") and name == "summary":
+        raw = gzip.compress(json.dumps(guest.scrub_summary(json.loads(gzip.decompress(raw))),
+                                       separators=(",", ":")).encode(), 6)
     if "gzip" in (req.headers.get("Accept-Encoding") or "").lower():
         headers["Content-Encoding"] = "gzip"
         body = raw
@@ -72,7 +83,9 @@ def me(req: func.HttpRequest) -> func.HttpResponse:
     claims, denied = _guard(req)
     if denied:
         return denied
-    return _json({"name": claims.get("name"),
+    if claims.get("guest"):
+        return _json({"guest": True, "readOnly": True, "name": "Guest"})
+    return _json({"guest": False, "readOnly": True, "name": claims.get("name"),
                   "user": claims.get("preferred_username") or claims.get("upn"),
                   "tenant": claims.get("tid"), "scopes": (claims.get("scp") or "").split()})
 
@@ -115,4 +128,6 @@ def runs(req: func.HttpRequest) -> func.HttpResponse:
     except Exception:
         logging.exception("Redis read failed for runs")
         return _error(503, "cache_unavailable", "The availability cache can't be reached right now.")
+    if claims.get("guest"):
+        items = [guest.scrub_run(r) for r in items]
     return _json({"schedule": os.environ.get("COLLECT_SCHEDULE", ""), "runs": items})
