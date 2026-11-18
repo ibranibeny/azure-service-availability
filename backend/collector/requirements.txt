@@ -1,0 +1,6 @@
+# Azure Functions Python worker library
+azure-functions
+# Azure CLI, run by the collector as `python -m azure.cli` (all Azure data comes from az)
+azure-cli==2.93.0
+# Azure Managed Redis client (Microsoft Entra token as password)
+redis>=5.0,<7

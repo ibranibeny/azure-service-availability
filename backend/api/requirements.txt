@@ -1,0 +1,4 @@
+azure-functions
+azure-identity>=1.17
+redis>=5.0,<7
+PyJWT[crypto]>=2.8
