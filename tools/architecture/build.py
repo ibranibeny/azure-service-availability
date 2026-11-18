@@ -378,6 +378,11 @@ def wrap(text, size, width):
     lines.append(cur)
     return lines
 
+def tag_left(h):
+    """Tags of packets that travel near the right edge are drawn to the left of the dot."""
+    xs = [p[0] for p in SEGS[h["seg"]]["pts"]]
+    return max(xs) > 1300
+
 def smil(c, pal, speed):
     flows, total = timeline(speed)
     T = lambda v: f"clk.begin+{v:.2f}s"
@@ -415,10 +420,11 @@ def smil(c, pal, speed):
                     kp = "0;1" if h["dir"] > 0 else "1;0"
                     tag = ""
                     if h["tag"] and k == 0:
-                        tw_ = tw(h["tag"], 10.5) + 12
-                        tag = (f'<g transform="translate(9 -25)"><rect width="{tw_:.1f}" height="17" rx="8.5" fill="{pal["card"]}" stroke="{col}" stroke-width="1.2"/>'
-                               f'<text x="6" y="12.2" font-size="10.5" fill="{pal["text"]}">{esc(h["tag"])}</text></g>')
-                    pk.append(f'<g opacity="0"><circle r="11" fill="{col}" opacity=".25"/><circle r="5.5" fill="{col}" stroke="{pal["card"]}" stroke-width="2"/>{tag}'
+                        tw_ = tw(h["tag"], 13, "bold") + 16
+                        tx_ = 12 if not tag_left(h) else -12 - tw_
+                        tag = (f'<g transform="translate({tx_:.1f} -34)"><rect width="{tw_:.1f}" height="22" rx="11" fill="{pal["card"]}" stroke="{col}" stroke-width="1.6"/>'
+                               f'<text x="8" y="15.5" font-size="13" font-weight="600" fill="{pal["text"]}">{esc(h["tag"])}</text></g>')
+                    pk.append(f'<g opacity="0"><circle r="16" fill="{col}" opacity=".25"/><circle r="8" fill="{col}" stroke="{pal["card"]}" stroke-width="2.5"/>{tag}'
                               f'<animateMotion begin="{T(b)}" dur="{h["dur"]:.2f}s" fill="freeze" calcMode="linear" keyPoints="{kp}" keyTimes="0;1"><mpath xlink:href="#seg-{h["seg"]}"/></animateMotion>'
                               f'<animate attributeName="opacity" begin="{T(b)}" dur="{h["dur"]:.2f}s" values="0;1;1;0" keyTimes="0;0.1;0.9;1" fill="freeze"/></g>')
             # caption
