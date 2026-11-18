@@ -303,55 +303,51 @@ resource storagePeDns 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2
   }
 }]
 
-var storageRoleAssignments = [
-  {
-    principal: idCollector.properties.principalId
-    role: roles.blobOwner
-  }
-  {
-    principal: idCollector.properties.principalId
-    role: roles.queueContributor
-  }
-  {
-    principal: idCollector.properties.principalId
-    role: roles.tableContributor
-  }
-  {
-    principal: idApi.properties.principalId
-    role: roles.blobOwner
-  }
-  {
-    principal: idApi.properties.principalId
-    role: roles.queueContributor
-  }
-  {
-    principal: idApi.properties.principalId
-    role: roles.tableContributor
-  }
+var storageRoles = [
+  roles.blobOwner
+  roles.queueContributor
+  roles.tableContributor
 ]
 
-resource storageRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for ra in storageRoleAssignments: {
-  name: guid(storage.id, ra.principal, ra.role)
+resource storageRolesCollector 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for role in storageRoles: {
+  name: guid(storage.id, idCollector.id, role)
   scope: storage
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', ra.role)
-    principalId: ra.principal
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', role)
+    principalId: idCollector.properties.principalId
     principalType: 'ServicePrincipal'
   }
 }]
 
-resource appiRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for p in [
-  idCollector.properties.principalId
-  idApi.properties.principalId
-]: {
-  name: guid(appi.id, p, roles.metricsPublisher)
+resource storageRolesApi 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for role in storageRoles: {
+  name: guid(storage.id, idApi.id, role)
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', role)
+    principalId: idApi.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}]
+
+resource appiRoleCollector 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(appi.id, idCollector.id, roles.metricsPublisher)
   scope: appi
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.metricsPublisher)
-    principalId: p
+    principalId: idCollector.properties.principalId
     principalType: 'ServicePrincipal'
   }
-}]
+}
+
+resource appiRoleApi 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(appi.id, idApi.id, roles.metricsPublisher)
+  scope: appi
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.metricsPublisher)
+    principalId: idApi.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
 
 // The collector reads regions, providers and VM SKUs for the whole subscription.
 module collectorReader 'modules/subscription-reader.bicep' = {
@@ -559,7 +555,7 @@ resource funcCollector 'Microsoft.Web/sites@2024-04-01' = {
     }
   }
   dependsOn: [
-    storageRoles
+    storageRolesCollector
     storagePeDns
   ]
 }
@@ -664,7 +660,7 @@ resource funcApi 'Microsoft.Web/sites@2024-04-01' = {
     }
   }
   dependsOn: [
-    storageRoles
+    storageRolesApi
     storagePeDns
   ]
 }
