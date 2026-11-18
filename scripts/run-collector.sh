@@ -4,7 +4,9 @@ set -euo pipefail
 RG="${RG:-rg-azure-service-availability}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="${COLLECTOR_APP:-$(jq -r .collectorAppName.value "$ROOT/.deploy/outputs.json")}"
-HOST="$(az functionapp show -g "$RG" -n "$APP" --query defaultHostName -o tsv)"
+# Newer az versions return the raw ARM shape (properties.defaultHostName); older ones flatten it.
+HOST="$(az functionapp show -g "$RG" -n "$APP" --query "properties.defaultHostName || defaultHostName" -o tsv)"
+[ -n "$HOST" ] || { echo "Could not read the host name of $APP" >&2; exit 1; }
 for i in $(seq 1 10); do
   KEY="$(az functionapp keys list -g "$RG" -n "$APP" --query masterKey -o tsv 2>/dev/null || true)"
   [ -n "$KEY" ] && break; sleep 15
